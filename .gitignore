@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 
 instance/
+*.db
+*.sqlite
+*.sqlite3
+
+Accounts*.xlsx
+!LodgeAccounts_Template.xlsx
 
 .pytest_cache/
 .mypy_cache/
