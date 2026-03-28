@@ -38,7 +38,9 @@ echo "Installing Python dependencies..."
 
 if [[ -f /etc/treasurer/treasurer.env ]]; then
   # shellcheck disable=SC1091
+  set -a
   source /etc/treasurer/treasurer.env
+  set +a
 fi
 
 if [[ -n "${TREASURER_DATABASE_URL:-}" ]]; then
