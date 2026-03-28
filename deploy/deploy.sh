@@ -45,16 +45,23 @@ if ! "$PYTHON_BIN" -m pip install -q --disable-pip-version-check -r requirements
 fi
 rm -f "$PIP_LOG"
 
+ENV_FILE=""
 if [[ -f /etc/5217/5217.env ]]; then
-  # shellcheck disable=SC1091
+  ENV_FILE="/etc/5217/5217.env"
+elif [[ -f /etc/treasurer/treasurer.env ]]; then
+  ENV_FILE="/etc/treasurer/treasurer.env"
+fi
+
+if [[ -n "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
   set -a
-  source /etc/5217/5217.env
+  source "$ENV_FILE"
   set +a
 fi
 
 if [[ -z "${TREASURER_DATABASE_URL:-}" ]]; then
   echo "TREASURER_DATABASE_URL is not set." >&2
-  echo "Expected /etc/5217/5217.env to define it." >&2
+  echo "Expected /etc/5217/5217.env or /etc/treasurer/treasurer.env to define it." >&2
   exit 1
 fi
 

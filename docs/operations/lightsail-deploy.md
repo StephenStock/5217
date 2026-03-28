@@ -16,6 +16,7 @@ This note records the first production-style deployment setup for the 5217 app o
 - The app should run as a `systemd` service on the Lightsail instance
 - `gunicorn` should serve the Flask app in production instead of the Flask development server, launched through the venv's Python
 - The app should read its database connection from `TREASURER_DATABASE_URL`
+- During the transition, deploy scripts accept either `/etc/5217/5217.env` or the legacy `/etc/treasurer/treasurer.env`
 
 ## Files in the repo
 
@@ -28,7 +29,7 @@ This note records the first production-style deployment setup for the 5217 app o
 1. Clone the repo on the Lightsail instance into `/home/ubuntu/5217`
 2. Create the virtual environment in `/home/ubuntu/5217/.venv`
 3. Copy `deploy/5217.service` to `/etc/systemd/system/5217.service`
-4. Create `/etc/5217/5217.env` with the database connection string
+4. Create `/etc/5217/5217.env` with the database connection string, or keep the old `/etc/treasurer/treasurer.env` in place for the transition
 5. Enable and start the service with `systemctl`
 6. Download or install an SSH private key on Windows so `deploy.bat` can reach the instance
 
@@ -44,6 +45,7 @@ This note records the first production-style deployment setup for the 5217 app o
 ## Notes
 
 - Keep the database credentials out of the repo and store them in `/etc/5217/5217.env`
+- If you still have the legacy env file, the deploy scripts will use that until you move the secret across
 - Keep the web port closed to the public if a reverse proxy is added later
 - Once a domain is pointed at the server, we can add HTTPS and a proper reverse proxy
 - The SSH private key used by `deploy.bat` should live outside the repo, such as `%USERPROFILE%\\.ssh\\lodge-app.pem`
