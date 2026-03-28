@@ -847,8 +847,7 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
             notes TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
             FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
-            FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE,
-            UNIQUE (reporting_period_id, meeting_key)
+            FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS virtual_accounts (
@@ -893,6 +892,56 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
     db.executescript(
         schema_sql
     )
+    _ensure_cash_settlement_migration(db)
+
+
+def _ensure_cash_settlement_migration(db: DatabaseHandle) -> None:
+    if not table_exists(db, "cash_settlements"):
+        return
+
+    if db.backend == "sqlite":
+        schema_row = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cash_settlements'"
+        ).fetchone()
+        if schema_row and "UNIQUE (reporting_period_id, meeting_key)" in (schema_row[0] or ""):
+            db.execute("PRAGMA foreign_keys = OFF")
+            db.executescript(
+                """
+                CREATE TABLE cash_settlements_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reporting_period_id INTEGER NOT NULL,
+                    meeting_key TEXT NOT NULL CHECK (meeting_key IN ('SEPTEMBER', 'NOVEMBER', 'JANUARY', 'MARCH', 'MAY')),
+                    settlement_date TEXT NOT NULL,
+                    net_amount REAL NOT NULL,
+                    bank_transaction_id INTEGER NOT NULL UNIQUE,
+                    notes TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
+                    FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE
+                );
+
+                INSERT INTO cash_settlements_new (
+                    id, reporting_period_id, meeting_key, settlement_date,
+                    net_amount, bank_transaction_id, notes, created_at
+                )
+                SELECT
+                    id, reporting_period_id, meeting_key, settlement_date,
+                    net_amount, bank_transaction_id, notes, created_at
+                FROM cash_settlements;
+
+                DROP TABLE cash_settlements;
+                ALTER TABLE cash_settlements_new RENAME TO cash_settlements;
+                """
+            )
+            db.execute("PRAGMA foreign_keys = ON")
+        return
+
+    db.execute(
+        """
+        ALTER TABLE cash_settlements
+        DROP CONSTRAINT IF EXISTS cash_settlements_reporting_period_id_meeting_key_key
+        """
+    )
 
 
 def _category_id_map(db: sqlite3.Connection) -> dict[str, int]:
@@ -921,12 +970,18 @@ def cash_settlement_map(
         FROM cash_settlements cs
         JOIN bank_transactions bt ON bt.id = cs.bank_transaction_id
         WHERE cs.reporting_period_id = ?
+        ORDER BY cs.settlement_date, cs.id
         """,
         (reporting_period_id,),
     ).fetchall()
 
-    return {
-        row["meeting_key"]: {
+    settlement_map: dict[str, dict[str, object]] = {}
+    for row in rows:
+        bucket = settlement_map.setdefault(
+            row["meeting_key"],
+            {"settlements": [], "settled_total": 0.0},
+        )
+        settlement = {
             "id": row["id"],
             "meeting_key": row["meeting_key"],
             "settlement_date": row["settlement_date"],
@@ -937,8 +992,9 @@ def cash_settlement_map(
             "bank_details": row["bank_details"],
             "bank_transaction_type": row["bank_transaction_type"],
         }
-        for row in rows
-    }
+        bucket["settlements"].append(settlement)
+        bucket["settled_total"] = float(bucket["settled_total"]) + float(row["net_amount"] or 0)
+    return settlement_map
 
 
 def create_cash_settlement(
@@ -948,19 +1004,9 @@ def create_cash_settlement(
     meeting_key: str,
     settlement_date: str,
     details: str,
+    deposit_amount: float | None = None,
     notes: str | None = None,
 ) -> dict[str, object]:
-    existing = db.execute(
-        """
-        SELECT id
-        FROM cash_settlements
-        WHERE reporting_period_id = ? AND meeting_key = ?
-        """,
-        (reporting_period_id, meeting_key),
-    ).fetchone()
-    if existing is not None:
-        raise ValueError("That meeting has already been settled.")
-
     totals = db.execute(
         """
         SELECT
@@ -974,9 +1020,29 @@ def create_cash_settlement(
 
     total_in = float(totals["total_in"] or 0)
     total_out = float(totals["total_out"] or 0)
-    net_amount = round(total_in - total_out, 2)
+    meeting_net = round(total_in - total_out, 2)
+
+    settled_total_row = db.execute(
+        """
+        SELECT COALESCE(SUM(net_amount), 0) AS settled_total
+        FROM cash_settlements
+        WHERE reporting_period_id = ? AND meeting_key = ?
+        """,
+        (reporting_period_id, meeting_key),
+    ).fetchone()
+    settled_total = float(settled_total_row["settled_total"] or 0)
+    remaining_to_settle = round(meeting_net - settled_total, 2)
+    if remaining_to_settle <= 0:
+        raise ValueError("That meeting is already fully settled.")
+
+    if deposit_amount is None:
+        net_amount = remaining_to_settle
+    else:
+        net_amount = round(float(deposit_amount), 2)
     if net_amount <= 0:
         raise ValueError("There is no positive cash balance to settle for that meeting.")
+    if net_amount > remaining_to_settle:
+        raise ValueError("That deposit is larger than the remaining cash to settle.")
 
     category_id_row = db.execute(
         "SELECT id FROM ledger_categories WHERE code = ?",
@@ -995,6 +1061,17 @@ def create_cash_settlement(
     ).fetchone()
     if meeting_row is None:
         raise ValueError("That meeting could not be found.")
+
+    settlement_index_row = db.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM cash_settlements
+        WHERE reporting_period_id = ? AND meeting_key = ?
+        """,
+        (reporting_period_id, meeting_key),
+    ).fetchone()
+    settlement_index = int(settlement_index_row["total"] or 0) + 1
+    source_row_number = reporting_period_id * 100000 + int(meeting_row["sort_order"] or 0) * 100 + settlement_index
 
     bank_transaction = db.execute(
         """
@@ -1022,7 +1099,7 @@ def create_cash_settlement(
             0.0,
             "system",
             "cash_settlement",
-            reporting_period_id * 1000 + int(meeting_row["sort_order"] or 0),
+            source_row_number,
             notes,
         ),
     ).fetchone()
@@ -1061,6 +1138,10 @@ def create_cash_settlement(
         "meeting_key": meeting_key,
         "settlement_date": settlement_date,
         "net_amount": net_amount,
+        "total_in": total_in,
+        "total_out": total_out,
+        "settled_total": settled_total + net_amount,
+        "remaining_to_settle": round(remaining_to_settle - net_amount, 2),
     }
 
 

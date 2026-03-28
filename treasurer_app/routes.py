@@ -333,17 +333,17 @@ def _cash_page_context():
                 "meeting_date": meeting["meeting_date"],
                 "meeting_type": meeting["meeting_type"],
                 "entries": meeting_entries,
-                "total_in": sum(float(row["money_in"] or 0) for row in meeting_entries),
-                "total_out": sum(float(row["money_out"] or 0) for row in meeting_entries),
-                "net_to_bank": round(
-                    sum(float(row["money_in"] or 0) for row in meeting_entries)
-                    - sum(float(row["money_out"] or 0) for row in meeting_entries),
-                    2,
-                ),
-                "settlement": settlements.get(meeting["meeting_key"]),
+                "total_in": round(sum(float(row["money_in"] or 0) for row in meeting_entries), 2),
+                "total_out": round(sum(float(row["money_out"] or 0) for row in meeting_entries), 2),
+                "settlement": settlements.get(meeting["meeting_key"], {"settlements": [], "settled_total": 0.0}),
                 "settlement_date_default": meeting["meeting_date"] or today,
             }
         )
+    for block in blocks:
+        block["net_to_bank"] = round(float(block["total_in"]) - float(block["total_out"]), 2)
+        block["settled_total"] = round(float(block["settlement"]["settled_total"]), 2)
+        block["remaining_to_bank"] = round(block["net_to_bank"] - block["settled_total"], 2)
+        block["settlement_count"] = len(block["settlement"]["settlements"])
 
     return {
         "meeting_blocks": blocks,
@@ -632,14 +632,23 @@ def cash_settle():
     reporting_period_id = _current_reporting_period_id()
     meeting_key = request.form.get("meeting_key", "").strip().upper()
     settlement_date = request.form.get("settlement_date", "").strip()
+    deposit_amount = request.form.get("deposit_amount", type=float)
     notes = request.form.get("notes", "").strip() or None
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _reply(message: str, status_code: int = 200, payload: dict | None = None):
+        if is_ajax:
+            body = {"ok": status_code < 400, "message": message}
+            if payload:
+                body.update(payload)
+            return body, status_code
+        flash(message, "success" if status_code < 400 else "error")
+        return redirect(url_for("main.cash"))
 
     if meeting_key not in {"SEPTEMBER", "NOVEMBER", "JANUARY", "MARCH", "MAY"}:
-        flash("Choose a valid meeting block.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Choose a valid meeting block.", 400)
     if not settlement_date:
-        flash("Choose a settlement date.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Choose a settlement date.", 400)
 
     meeting_row = db.execute(
         """
@@ -650,30 +659,40 @@ def cash_settle():
         (reporting_period_id, meeting_key),
     ).fetchone()
     if meeting_row is None:
-        flash("That meeting could not be found.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("That meeting could not be found.", 404)
 
     details = f"Cash deposit for {meeting_row['meeting_name']}"
 
     try:
-        create_cash_settlement(
+        settlement = create_cash_settlement(
             db,
             reporting_period_id,
             meeting_key=meeting_key,
             settlement_date=settlement_date,
             details=details,
+            deposit_amount=deposit_amount,
             notes=notes,
         )
     except ValueError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("main.cash"))
+        return _reply(str(exc), 400)
     except RuntimeError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("main.cash"))
+        return _reply(str(exc), 500)
 
     db.commit()
-    flash("Cash settlement created.", "success")
-    return redirect(url_for("main.cash"))
+    return _reply(
+        "Cash deposit linked.",
+        payload={
+            "settlement": settlement,
+            "meeting": {
+                "meeting_key": meeting_key,
+                "total_in": settlement["total_in"],
+                "total_out": settlement["total_out"],
+                "net_to_bank": round(settlement["settled_total"] + settlement["remaining_to_settle"], 2),
+                "settled_total": settlement["settled_total"],
+                "remaining_to_bank": settlement["remaining_to_settle"],
+            },
+        },
+    )
 
 
 @main_bp.post("/cash/entries/add")
@@ -687,24 +706,32 @@ def cash_entry_add():
     money_in = request.form.get("money_in", type=float) or 0.0
     money_out = request.form.get("money_out", type=float) or 0.0
     notes = request.form.get("notes", "").strip() or None
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _reply(message: str, status_code: int = 200, payload: dict | None = None):
+        if is_ajax:
+            body = {"ok": status_code < 400, "message": message}
+            if payload:
+                body.update(payload)
+            return body, status_code
+        flash(message, "success" if status_code < 400 else "error")
+        return redirect(url_for("main.cash"))
 
     if meeting_key not in {"SEPTEMBER", "NOVEMBER", "JANUARY", "MARCH", "MAY"}:
-        flash("Choose a valid meeting block.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Choose a valid meeting block.", 400)
     if not entry_type or not entry_name or category_id is None:
-        flash("Please complete the cash entry details.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Please complete the cash entry details.", 400)
     if money_in <= 0 and money_out <= 0:
-        flash("Enter either an amount in or an amount out.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Enter either an amount in or an amount out.", 400)
 
-    db.execute(
+    inserted = db.execute(
         """
         INSERT INTO cashbook_entries (
             reporting_period_id, meeting_key, entry_type, entry_name,
             ledger_category_id, money_in, money_out, notes
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
         """,
         (
             reporting_period_id,
@@ -716,8 +743,10 @@ def cash_entry_add():
             money_out,
             notes,
         ),
-    )
+    ).fetchone()
     db.commit()
+    if is_ajax:
+        return _reply("Cash entry added.", payload={"entry_id": inserted["id"]})
     flash("Cash entry added.", "success")
     return redirect(url_for("main.cash"))
 
@@ -733,16 +762,23 @@ def cash_entry_update(entry_id: int):
     money_in = request.form.get("money_in", type=float) or 0.0
     money_out = request.form.get("money_out", type=float) or 0.0
     notes = request.form.get("notes", "").strip() or None
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _reply(message: str, status_code: int = 200, payload: dict | None = None):
+        if is_ajax:
+            body = {"ok": status_code < 400, "message": message}
+            if payload:
+                body.update(payload)
+            return body, status_code
+        flash(message, "success" if status_code < 400 else "error")
+        return redirect(url_for("main.cash"))
 
     if meeting_key not in {"SEPTEMBER", "NOVEMBER", "JANUARY", "MARCH", "MAY"}:
-        flash("Choose a valid meeting block.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Choose a valid meeting block.", 400)
     if not entry_type or not entry_name or category_id is None:
-        flash("Please complete the cash entry details.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Please complete the cash entry details.", 400)
     if money_in <= 0 and money_out <= 0:
-        flash("Enter either an amount in or an amount out.", "error")
-        return redirect(url_for("main.cash"))
+        return _reply("Enter either an amount in or an amount out.", 400)
 
     updated = db.execute(
         """
@@ -765,9 +801,30 @@ def cash_entry_update(entry_id: int):
     )
     db.commit()
     if updated.rowcount:
+        if is_ajax:
+            category_name = db.execute(
+                "SELECT display_name FROM ledger_categories WHERE id = ?",
+                (category_id,),
+            ).fetchone()
+            return _reply(
+                "Cash entry updated.",
+                payload={
+                    "entry": {
+                        "id": entry_id,
+                        "meeting_key": meeting_key,
+                        "entry_type": entry_type,
+                        "entry_name": entry_name,
+                        "category_id": category_id,
+                        "category_name": category_name["display_name"] if category_name else None,
+                        "money_in": money_in,
+                        "money_out": money_out,
+                        "notes": notes,
+                    }
+                },
+            )
         flash("Cash entry updated.", "success")
     else:
-        flash("That cash entry could not be found.", "error")
+        return _reply("That cash entry could not be found.", 404)
     return redirect(url_for("main.cash"))
 
 
@@ -775,14 +832,19 @@ def cash_entry_update(entry_id: int):
 def cash_entry_delete(entry_id: int):
     db = get_db()
     reporting_period_id = _current_reporting_period_id()
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     deleted = db.execute(
         "DELETE FROM cashbook_entries WHERE id = ? AND reporting_period_id = ?",
         (entry_id, reporting_period_id),
     )
     db.commit()
     if deleted.rowcount:
+        if is_ajax:
+            return {"ok": True, "message": "Cash entry deleted.", "entry_id": entry_id}
         flash("Cash entry deleted.", "success")
     else:
+        if is_ajax:
+            return {"ok": False, "message": "That cash entry could not be found."}, 404
         flash("That cash entry could not be found.", "error")
     return redirect(url_for("main.cash"))
 

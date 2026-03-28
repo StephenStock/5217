@@ -14,7 +14,7 @@
   </section>
 
   {% for meeting in meeting_blocks %}
-    <section class="panel cash-block">
+    <section class="panel cash-block" data-meeting-key="{{ meeting.meeting_key }}">
       <div class="panel-heading cash-heading">
         <div>
           <h3>{{ meeting.meeting_name }}</h3>
@@ -24,39 +24,42 @@
         </div>
         <div class="cash-summary">
           <div class="cash-totals">
-            <span>In: &pound;{{ "%.2f"|format(meeting.total_in) }}</span>
-            <span>Out: &pound;{{ "%.2f"|format(meeting.total_out) }}</span>
-            <span>Net to bank: &pound;{{ "%.2f"|format(meeting.net_to_bank) }}</span>
+            <span>In: &pound;<strong data-meeting-total-in>{{ "%.2f"|format(meeting.total_in) }}</strong></span>
+            <span>Out: &pound;<strong data-meeting-total-out>{{ "%.2f"|format(meeting.total_out) }}</strong></span>
+            <span>Net to bank: &pound;<strong data-meeting-net>{{ "%.2f"|format(meeting.net_to_bank) }}</strong></span>
+            <span>Settled: &pound;<strong data-meeting-settled>{{ "%.2f"|format(meeting.settled_total) }}</strong></span>
+            <span>Remaining: &pound;<strong data-meeting-remaining>{{ "%.2f"|format(meeting.remaining_to_bank) }}</strong></span>
           </div>
-          {% if meeting.settlement %}
-            <div class="cash-settlement-status">
-              <span class="pill">Settled</span>
-              <span class="section-note">
-                Banked on {{ meeting.settlement.bank_transaction_date or meeting.settlement.settlement_date }}
-                {% if meeting.settlement.bank_transaction_id %}
-                  · Bank row #{{ meeting.settlement.bank_transaction_id }}
-                {% endif %}
-              </span>
-            </div>
-          {% else %}
-            <div class="cash-settlement-status">
-              {% if meeting.net_to_bank > 0 %}
-                <form class="cash-settle-form" method="post" action="{{ url_for('main.cash_settle') }}">
-                  <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
-                  <input
-                    type="date"
-                    name="settlement_date"
-                    value="{{ meeting.settlement_date_default }}"
-                    required
-                  >
-                  <input type="text" name="notes" placeholder="Settlement notes">
-                  <button class="button button-primary" type="submit">Settle cash</button>
-                </form>
+          <div class="cash-settlement-status">
+            <div class="cash-deposit-list" data-meeting-settlement-list>
+              {% if meeting.settlement.settlements %}
+                {% for settlement in meeting.settlement.settlements %}
+                  <div class="cash-deposit-item">
+                    <span class="pill">Deposit</span>
+                    <span>&pound;{{ "%.2f"|format(settlement.net_amount) }}</span>
+                    <span>{{ settlement.settlement_date }}</span>
+                    {% if settlement.bank_transaction_id %}
+                      <span>#{{ settlement.bank_transaction_id }}</span>
+                    {% endif %}
+                  </div>
+                {% endfor %}
               {% else %}
-                <span class="section-note">Nothing to bank for this meeting.</span>
+                <span class="section-note" data-meeting-empty-settlement>No deposits linked yet.</span>
               {% endif %}
             </div>
-          {% endif %}
+            {% if meeting.remaining_to_bank > 0 %}
+              <form class="cash-settle-form" method="post" action="{{ url_for('main.cash_settle') }}" data-cash-settle-form>
+                <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
+                <input type="date" name="settlement_date" value="{{ meeting.settlement_date_default }}" required>
+                <input type="number" name="deposit_amount" min="0.01" step="0.01" value="{{ '%.2f'|format(meeting.remaining_to_bank) }}" placeholder="Amount" required>
+                <input type="text" name="notes" placeholder="Deposit notes">
+                <button class="button button-primary" type="submit">Add deposit</button>
+                <span class="inline-save-status" data-cash-settle-status aria-live="polite"></span>
+              </form>
+            {% else %}
+              <span class="section-note">Meeting cash fully settled.</span>
+            {% endif %}
+          </div>
         </div>
       </div>
 
@@ -92,24 +95,24 @@
           <tbody>
             {% if meeting.entries %}
               {% for entry in meeting.entries %}
-                <tr>
-                  <td>{{ entry.entry_type }}</td>
-                  <td>{{ entry.entry_name }}</td>
+                <tr id="cash-entry-{{ entry.id }}" data-cash-entry-row data-entry-id="{{ entry.id }}">
+                  <td data-field="entry_type">{{ entry.entry_type }}</td>
+                  <td data-field="entry_name">{{ entry.entry_name }}</td>
                   <td>
                     {% if entry.category_name %}
-                      <span class="pill">{{ entry.category_name }}</span>
+                      <span class="pill" data-field="category_name">{{ entry.category_name }}</span>
                     {% else %}
-                      <span class="muted-text">Unassigned</span>
+                      <span class="muted-text" data-field="category_name">Unassigned</span>
                     {% endif %}
                   </td>
-                  <td class="money-cell">{% if entry.money_in %}&pound;{{ "%.2f"|format(entry.money_in) }}{% else %}-{% endif %}</td>
-                  <td class="money-cell">{% if entry.money_out %}&pound;{{ "%.2f"|format(entry.money_out) }}{% else %}-{% endif %}</td>
-                  <td>{{ entry.notes or "-" }}</td>
+                  <td class="money-cell" data-field="money_in">{% if entry.money_in %}&pound;{{ "%.2f"|format(entry.money_in) }}{% else %}-{% endif %}</td>
+                  <td class="money-cell" data-field="money_out">{% if entry.money_out %}&pound;{{ "%.2f"|format(entry.money_out) }}{% else %}-{% endif %}</td>
+                  <td data-field="notes">{{ entry.notes or "-" }}</td>
                   <td>
                     <div class="cash-actions">
-                      <details class="cash-entry-edit">
+                      <details class="cash-entry-edit" data-cash-edit-wrapper>
                         <summary class="button">Edit</summary>
-                        <form class="cash-edit-form" method="post" action="{{ url_for('main.cash_entry_update', entry_id=entry.id) }}">
+                        <form class="cash-edit-form" method="post" action="{{ url_for('main.cash_entry_update', entry_id=entry.id) }}" data-cash-entry-form>
                           <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
                           <label>
                             <span>Item</span>
@@ -124,9 +127,7 @@
                             <select name="ledger_category_id" required>
                               <option value="">Category</option>
                               {% for category in ledger_categories %}
-                                <option value="{{ category.id }}" {% if entry.ledger_category_id == category.id %}selected{% endif %}>
-                                  {{ category.display_name }}
-                                </option>
+                                <option value="{{ category.id }}" {% if entry.ledger_category_id == category.id %}selected{% endif %}>{{ category.display_name }}</option>
                               {% endfor %}
                             </select>
                           </label>
@@ -144,10 +145,11 @@
                           </label>
                           <div class="cash-edit-actions">
                             <button class="button button-primary" type="submit">Save</button>
+                            <span class="inline-save-status" data-cash-entry-status aria-live="polite"></span>
                           </div>
                         </form>
                       </details>
-                      <form method="post" action="{{ url_for('main.cash_entry_delete', entry_id=entry.id) }}" class="cash-delete-form">
+                      <form method="post" action="{{ url_for('main.cash_entry_delete', entry_id=entry.id) }}" class="cash-delete-form" data-cash-delete-form>
                         <button class="button" type="submit">Delete</button>
                       </form>
                     </div>

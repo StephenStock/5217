@@ -231,8 +231,7 @@ CREATE TABLE cash_settlements (
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
     FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
-    FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE,
-    UNIQUE (reporting_period_id, meeting_key)
+    FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE
 );
 
 CREATE TABLE virtual_accounts (
