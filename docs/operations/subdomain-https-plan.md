@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note records the intended public entry point for the Treasurer app and the order we should use to make it secure and maintainable.
+This note records the intended public entry point for the 5217 app and the order we should use to make it secure and maintainable.
 
 ## Current public site
 
@@ -11,7 +11,7 @@ This note records the intended public entry point for the Treasurer app and the 
 
 ## Planned app host
 
-- Treasurer/Secretary app: `https://app.5217.org.uk/`
+- 5217 app: `https://app.5217.org.uk/`
 - Public forms should live under paths such as `/forms`
 - The public WordPress site should link only to the forms area, not to the admin login
 

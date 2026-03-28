@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note records the PostgreSQL setup on the DEN PC so the Treasurer app can point at the same database from whichever machine you use on the home network.
+This note records the PostgreSQL setup on the DEN PC so the 5217 app can point at the same database from whichever machine you use on the home network.
 
 ## Current host
 

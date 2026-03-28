@@ -13,7 +13,7 @@ This note records the current public website, the planned application hosting, a
 
 ## Planned app layout
 
-- New Treasurer/Secretary app should live on a subdomain such as `app.5217.org.uk`
+- New 5217 app should live on a subdomain such as `app.5217.org.uk`
 - Public forms can live inside the app under a route such as `/forms`
 - The main lodge website and the app should stay separate to keep maintenance simpler
 

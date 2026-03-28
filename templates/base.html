@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Lodge Treasurer{% endblock %}</title>
+  <title>{% block title %}5217 Portal{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
 </head>
 <body>
   <header class="site-header">
     <div class="site-header-top">
       <div>
-        <p class="eyebrow">Lodge Admin</p>
-        <h1>Lodge Treasurer</h1>
+        <p class="eyebrow">5217 Admin</p>
+        <h1>5217 Portal</h1>
       </div>
       <div class="header-meta">
-        <p class="subtitle">Keep the annual statement, cashbook, bank ledger, and member dues in one place.</p>
+        <p class="subtitle">Keep Lodge and Chapter records, forms, and admin workflows in one place.</p>
         {% if current_user is defined and current_user is not none %}
           <div class="user-chip">
             <span>{{ current_user.full_name }}</span>

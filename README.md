@@ -1,6 +1,6 @@
-# Lodge Treasurer App
+# 5217 Portal
 
-Starter web app for a lodge treasurer using Flask, PostgreSQL in production, and vanilla JavaScript.
+Starter web app for Lodge and Chapter operations using Flask, PostgreSQL in production, and vanilla JavaScript.
 
 ## What is included
 
@@ -24,7 +24,7 @@ This will:
 3. Use a local SQLite database on first run
 4. Start the development server at `http://127.0.0.1:5000`
 
-The app uses `TREASURER_DATABASE_URL` to decide which database to talk to. `start.bat` defaults to a local SQLite database in `%LOCALAPPDATA%\Treasurer\Lodge.db` so you can develop on Windows without needing the Lightsail database.
+The app uses `TREASURER_DATABASE_URL` to decide which database to talk to. `start.bat` defaults to a local SQLite database in `%LOCALAPPDATA%\5217\Lodge.db` so you can develop on Windows without needing the Lightsail database.
 
 If you need to point the app somewhere else, set `TREASURER_DATABASE_URL` before launching it.
 

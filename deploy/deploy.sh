@@ -13,6 +13,7 @@ if [[ ! -d "$APP_DIR/.git" ]]; then
 fi
 
 cd "$APP_DIR"
+git remote set-url origin https://github.com/StephenStock/5217.git
 
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 current_commit="$(git rev-parse --short HEAD)"

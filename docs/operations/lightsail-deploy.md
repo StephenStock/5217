@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note records the first production-style deployment setup for the Treasurer app on Lightsail.
+This note records the first production-style deployment setup for the 5217 app on Lightsail.
 
 ## Current target
 

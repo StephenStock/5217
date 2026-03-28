@@ -140,7 +140,7 @@ def default_database_path() -> Path:
 
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        return Path(local_app_data) / "Treasurer" / "Lodge.db"
+        return Path(local_app_data) / "5217" / "Lodge.db"
 
     return _project_root() / "instance" / "Lodge.db"
 
