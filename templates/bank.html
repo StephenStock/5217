@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Bank | Lodge Treasurer{% endblock %}
+
+{% block content %}
+  <section class="hero-card bank-hero">
+    <div>
+      <p class="eyebrow">Bank Ledger</p>
+      <h2>Import statement lines and assign each row to the same income and expense categories used in the workbook.</h2>
+    </div>
+    <div class="hero-note hero-actions">
+      <form method="post" action="{{ url_for('main.bank_import') }}">
+        <button class="button button-primary" type="submit">Import From Workbook</button>
+      </form>
+      <p>The import reads the `Bank` sheet and skips rows already loaded into the ledger.</p>
+    </div>
+  </section>
+
+  <section class="stats-grid bank-stats">
+    <article class="stat-card">
+      <span>Transactions</span>
+      <strong>{{ bank_summary.total_transactions }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Money In</span>
+      <strong>&pound;{{ "%.2f"|format(bank_summary.total_money_in) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Money Out</span>
+      <strong>&pound;{{ "%.2f"|format(bank_summary.total_money_out) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Uncategorised</span>
+      <strong>{{ bank_summary.uncategorised_transactions }}</strong>
+    </article>
+  </section>
+
+  <section class="panel bank-panel">
+    <div class="panel-heading">
+      <div>
+        <h3>Transactions</h3>
+        <p class="section-note">Compact statement-style view. Category changes autosave as soon as you choose a value.</p>
+      </div>
+      <input type="search" id="bankSearch" placeholder="Filter bank transactions">
+    </div>
+
+    <div class="table-scroll">
+      <table class="bank-table compact-ledger">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Details</th>
+            <th>Type</th>
+            <th>In</th>
+            <th>Out</th>
+            <th>Balance</th>
+            <th>Category</th>
+          </tr>
+        </thead>
+        <tbody id="bankTable">
+          {% for transaction in bank_transactions %}
+            <tr class="{% if transaction.is_opening_balance %}opening-balance{% endif %}">
+              <td>{{ transaction.transaction_date or "-" }}</td>
+              <td class="details-cell">{{ transaction.details }}</td>
+              <td>{{ transaction.transaction_type or "-" }}</td>
+              <td class="money-cell">{% if transaction.money_in %}&pound;{{ "%.2f"|format(transaction.money_in) }}{% else %}-{% endif %}</td>
+              <td class="money-cell">{% if transaction.money_out %}&pound;{{ "%.2f"|format(transaction.money_out) }}{% else %}-{% endif %}</td>
+              <td class="money-cell">{% if transaction.running_balance is not none %}&pound;{{ "%.2f"|format(transaction.running_balance) }}{% else %}-{% endif %}</td>
+              <td class="category-cell">
+                {% if transaction.is_opening_balance %}
+                  <span class="muted-text">Opening balance</span>
+                {% else %}
+                  <form
+                    class="bank-category-form"
+                    method="post"
+                    action="{{ url_for('main.bank_assign', transaction_id=transaction.id) }}"
+                  >
+                    <label class="sr-only" for="category-{{ transaction.id }}">Category</label>
+                    <select
+                      id="category-{{ transaction.id }}"
+                      name="ledger_category_id"
+                      class="bank-category-select"
+                      data-autosubmit="true"
+                      required
+                    >
+                      <option value="">Choose category</option>
+                      {% for category in ledger_categories %}
+                        <option value="{{ category.id }}" {% if transaction.selected_category_id == category.id %}selected{% endif %}>
+                          {{ category.display_name }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <input type="hidden" name="amount" value="{{ '%.2f'|format(transaction.net_amount) }}">
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

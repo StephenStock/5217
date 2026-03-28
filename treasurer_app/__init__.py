@@ -2,7 +2,7 @@ from pathlib import Path
 
 from flask import Flask
 
-from .db import close_db, ensure_instance_path, init_app
+from .db import close_db, ensure_financial_tables, ensure_instance_path, get_db, init_app, seed_ledger_categories, seed_meeting_schedule
 from .routes import main_bp
 
 
@@ -26,5 +26,18 @@ def create_app(test_config: dict | None = None) -> Flask:
     init_app(app)
     app.teardown_appcontext(close_db)
     app.register_blueprint(main_bp)
+
+    with app.app_context():
+        db = get_db()
+        ensure_financial_tables(db)
+        seed_ledger_categories(db)
+        has_reporting_periods = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reporting_periods'"
+        ).fetchone()
+        if has_reporting_periods:
+            period_count = db.execute("SELECT COUNT(*) AS total FROM reporting_periods").fetchone()["total"]
+            if period_count > 0:
+                seed_meeting_schedule(db, reporting_period_id=1)
+        db.commit()
 
     return app

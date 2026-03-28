@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Statement | Lodge Treasurer{% endblock %}
+
+{% block content %}
+  <section class="hero-card statement-hero">
+    <div>
+      <p class="eyebrow">Annual Statement</p>
+      <h2>Core statement summary from the workbook, limited here to the realised income and expenditure sections.</h2>
+    </div>
+    <div class="hero-note statement-note">
+      <p>Forecast columns are intentionally hidden for now. This view keeps the fixed statement format while we build the rest later.</p>
+    </div>
+  </section>
+
+  <section class="stats-grid statement-stats">
+    <article class="stat-card">
+      <span>Income</span>
+      <strong>&pound;{{ "%.2f"|format(income_total) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Expense</span>
+      <strong>&pound;{{ "%.2f"|format(expense_total) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Net Result</span>
+      <strong>&pound;{{ "%.2f"|format(net_result) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Uncategorised Bank Rows</span>
+      <strong>{{ uncategorised_transactions }}</strong>
+    </article>
+  </section>
+
+  <section class="statement-sheet-grid">
+    <section class="panel statement-panel">
+      <div class="panel-heading">
+        <div>
+          <h3>Income</h3>
+          <p class="section-note">Realised income from the bank allocations currently in the ledger.</p>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="statement-table compact-ledger">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Description</th>
+              <th>Actual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in income_rows %}
+              <tr>
+                <td>{{ row.code }}</td>
+                <td>{{ row.display_name }}</td>
+                <td class="money-cell">&pound;{{ "%.2f"|format(row.total_amount) }}</td>
+              </tr>
+            {% endfor %}
+            <tr class="totals-row">
+              <td colspan="2">Income total</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(income_total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel statement-panel">
+      <div class="panel-heading">
+        <div>
+          <h3>Expenditure</h3>
+          <p class="section-note">Realised expense lines, shown beside income to match the fixed statement layout.</p>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="statement-table compact-ledger">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Description</th>
+              <th>Actual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in expense_rows %}
+              <tr>
+                <td>{{ row.code }}</td>
+                <td>{{ row.display_name }}</td>
+                <td class="money-cell">&pound;{{ "%.2f"|format(row.total_amount) }}</td>
+              </tr>
+            {% endfor %}
+            <tr class="totals-row">
+              <td colspan="2">Expenditure total</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(expense_total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section class="panel statement-panel">
+    <div class="panel-heading">
+      <div>
+        <h3>Statement Check</h3>
+        <p class="section-note">This gives us the key control figures from the spreadsheet without the later forecasting columns.</p>
+      </div>
+    </div>
+
+    <div class="statement-check-grid">
+      <article class="statement-check-card">
+        <span>Latest bank balance</span>
+        <strong>{% if latest_bank_balance is not none %}&pound;{{ "%.2f"|format(latest_bank_balance) }}{% else %}-{% endif %}</strong>
+      </article>
+      <article class="statement-check-card">
+        <span>Income less expense</span>
+        <strong>&pound;{{ "%.2f"|format(net_result) }}</strong>
+      </article>
+      <article class="statement-check-card">
+        <span>Uncategorised rows</span>
+        <strong>{{ uncategorised_transactions }}</strong>
+      </article>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Settings | Lodge Treasurer{% endblock %}
+
+{% block content %}
+  <section class="hero-card settings-hero">
+    <div>
+      <p class="eyebrow">Settings</p>
+      <h2>Set up the five meeting blocks for the year, including date, title, and meeting type.</h2>
+    </div>
+    <div class="hero-note">
+      <p>These values drive the block layout on the cash page. We can extend this later to other yearly settings.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form method="post" class="settings-form">
+      <div class="table-scroll">
+        <table class="settings-table compact-ledger">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Date</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for meeting in meeting_schedule %}
+              <tr>
+                <td>{{ meeting.meeting_key }}</td>
+                <td>
+                  <input type="date" name="{{ meeting.meeting_key }}_date" value="{{ meeting.meeting_date or '' }}">
+                </td>
+                <td>
+                  <input type="text" name="{{ meeting.meeting_key }}_name" value="{{ meeting.meeting_name }}">
+                </td>
+                <td>
+                  <select name="{{ meeting.meeting_key }}_type">
+                    <option value="Regular" {% if meeting.meeting_type == 'Regular' %}selected{% endif %}>Regular</option>
+                    <option value="Installation" {% if meeting.meeting_type == 'Installation' %}selected{% endif %}>Installation</option>
+                  </select>
+                </td>
+                <td>
+                  <input type="text" name="{{ meeting.meeting_key }}_notes" value="{{ meeting.notes or '' }}">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="settings-actions">
+        <button class="button button-primary" type="submit">Save Meeting Settings</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

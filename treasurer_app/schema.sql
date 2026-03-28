@@ -1,6 +1,11 @@
 PRAGMA foreign_keys = OFF;
 
 DROP TABLE IF EXISTS bookings;
+DROP TABLE IF EXISTS cashbook_entries;
+DROP TABLE IF EXISTS bank_transaction_allocations;
+DROP TABLE IF EXISTS bank_transactions;
+DROP TABLE IF EXISTS meetings;
+DROP TABLE IF EXISTS ledger_categories;
 DROP TABLE IF EXISTS dining_charges;
 DROP TABLE IF EXISTS subscription_charges;
 DROP TABLE IF EXISTS payments;
@@ -150,11 +155,85 @@ CREATE TABLE payments (
     FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id)
 );
 
+CREATE TABLE ledger_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE bank_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporting_period_id INTEGER NOT NULL,
+    transaction_date TEXT,
+    details TEXT NOT NULL,
+    transaction_type TEXT,
+    money_in REAL NOT NULL DEFAULT 0,
+    money_out REAL NOT NULL DEFAULT 0,
+    running_balance REAL,
+    is_opening_balance INTEGER NOT NULL DEFAULT 0,
+    source_workbook TEXT,
+    source_sheet TEXT,
+    source_row_number INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
+    UNIQUE (source_workbook, source_sheet, source_row_number)
+);
+
+CREATE TABLE bank_transaction_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bank_transaction_id INTEGER NOT NULL,
+    ledger_category_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE,
+    FOREIGN KEY (ledger_category_id) REFERENCES ledger_categories (id)
+);
+
+CREATE TABLE meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporting_period_id INTEGER NOT NULL,
+    meeting_key TEXT NOT NULL UNIQUE,
+    meeting_name TEXT NOT NULL,
+    meeting_date TEXT,
+    meeting_type TEXT NOT NULL DEFAULT 'Regular',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id)
+);
+
+CREATE TABLE cashbook_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporting_period_id INTEGER NOT NULL,
+    meeting_key TEXT NOT NULL CHECK (meeting_key IN ('SEPTEMBER', 'NOVEMBER', 'JANUARY', 'MARCH', 'MAY')),
+    entry_type TEXT NOT NULL,
+    entry_name TEXT NOT NULL,
+    member_id INTEGER,
+    ledger_category_id INTEGER,
+    money_in REAL NOT NULL DEFAULT 0,
+    money_out REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
+    FOREIGN KEY (member_id) REFERENCES members (id),
+    FOREIGN KEY (ledger_category_id) REFERENCES ledger_categories (id)
+);
+
 CREATE INDEX idx_members_member_type_id ON members (member_type_id);
 CREATE INDEX idx_dues_member_id ON dues (member_id);
 CREATE INDEX idx_dues_reporting_period_id ON dues (reporting_period_id);
 CREATE INDEX idx_subscription_charges_member_id ON subscription_charges (member_id);
 CREATE INDEX idx_dining_charges_member_id ON dining_charges (member_id);
 CREATE INDEX idx_payments_member_id ON payments (member_id);
+CREATE INDEX idx_bank_transactions_date ON bank_transactions (transaction_date);
+CREATE INDEX idx_bank_transactions_reporting_period_id ON bank_transactions (reporting_period_id);
+CREATE INDEX idx_bank_transaction_allocations_transaction_id ON bank_transaction_allocations (bank_transaction_id);
+CREATE INDEX idx_bank_transaction_allocations_category_id ON bank_transaction_allocations (ledger_category_id);
+CREATE INDEX idx_cashbook_entries_meeting_key ON cashbook_entries (meeting_key);
 CREATE INDEX idx_bookings_event_id ON bookings (event_id);
 CREATE INDEX idx_messages_status ON messages (status);

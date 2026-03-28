@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Cash | Lodge Treasurer{% endblock %}
+
+{% block content %}
+  <section class="hero-card cash-hero">
+    <div>
+      <p class="eyebrow">Cashbook</p>
+      <h2>Cash entries grouped by meeting block, with add, edit, delete, and category assignment built in.</h2>
+    </div>
+    <div class="hero-note">
+      <p>The meeting names and dates are controlled from `Settings`. This keeps the layout close to the workbook while still being fast enough for daily use.</p>
+    </div>
+  </section>
+
+  {% for meeting in meeting_blocks %}
+    <section class="panel cash-block">
+      <div class="panel-heading cash-heading">
+        <div>
+          <h3>{{ meeting.meeting_name }}</h3>
+          <p class="section-note">
+            {{ meeting.meeting_date or "Date not set" }} | {{ meeting.meeting_type }}
+          </p>
+        </div>
+        <div class="cash-totals">
+          <span>In: &pound;{{ "%.2f"|format(meeting.total_in) }}</span>
+          <span>Out: &pound;{{ "%.2f"|format(meeting.total_out) }}</span>
+        </div>
+      </div>
+
+      <form class="cash-add-form" method="post" action="{{ url_for('main.cash_entry_add') }}">
+        <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
+        <input type="text" name="entry_type" placeholder="Item" required>
+        <input type="text" name="entry_name" placeholder="Name" required>
+        <select name="ledger_category_id" required>
+          <option value="">Category</option>
+          {% for category in ledger_categories %}
+            <option value="{{ category.id }}">{{ category.display_name }}</option>
+          {% endfor %}
+        </select>
+        <input type="number" name="money_in" min="0" step="0.01" placeholder="In">
+        <input type="number" name="money_out" min="0" step="0.01" placeholder="Out">
+        <input type="text" name="notes" placeholder="Notes">
+        <button class="button button-primary" type="submit">Add</button>
+      </form>
+
+      <div class="table-scroll">
+        <table class="cash-table compact-ledger">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>In</th>
+              <th>Out</th>
+              <th>Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if meeting.entries %}
+              {% for entry in meeting.entries %}
+                <tr>
+                  <td>{{ entry.entry_type }}</td>
+                  <td>{{ entry.entry_name }}</td>
+                  <td>
+                    {% if entry.category_name %}
+                      <span class="pill">{{ entry.category_name }}</span>
+                    {% else %}
+                      <span class="muted-text">Unassigned</span>
+                    {% endif %}
+                  </td>
+                  <td class="money-cell">{% if entry.money_in %}&pound;{{ "%.2f"|format(entry.money_in) }}{% else %}-{% endif %}</td>
+                  <td class="money-cell">{% if entry.money_out %}&pound;{{ "%.2f"|format(entry.money_out) }}{% else %}-{% endif %}</td>
+                  <td>{{ entry.notes or "-" }}</td>
+                  <td>
+                    <details class="cash-entry-edit">
+                      <summary class="button">Edit</summary>
+                      <form class="cash-edit-form" method="post" action="{{ url_for('main.cash_entry_update', entry_id=entry.id) }}">
+                        <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
+                        <label>
+                          <span>Item</span>
+                          <input type="text" name="entry_type" value="{{ entry.entry_type }}" required>
+                        </label>
+                        <label>
+                          <span>Name</span>
+                          <input type="text" name="entry_name" value="{{ entry.entry_name }}" required>
+                        </label>
+                        <label>
+                          <span>Category</span>
+                          <select name="ledger_category_id" required>
+                            <option value="">Category</option>
+                            {% for category in ledger_categories %}
+                              <option value="{{ category.id }}" {% if entry.ledger_category_id == category.id %}selected{% endif %}>
+                                {{ category.display_name }}
+                              </option>
+                            {% endfor %}
+                          </select>
+                        </label>
+                        <label>
+                          <span>In</span>
+                          <input type="number" name="money_in" min="0" step="0.01" value="{{ '%.2f'|format(entry.money_in or 0) }}">
+                        </label>
+                        <label>
+                          <span>Out</span>
+                          <input type="number" name="money_out" min="0" step="0.01" value="{{ '%.2f'|format(entry.money_out or 0) }}">
+                        </label>
+                        <label>
+                          <span>Notes</span>
+                          <input type="text" name="notes" value="{{ entry.notes or '' }}">
+                        </label>
+                        <div class="cash-edit-actions">
+                          <button class="button button-primary" type="submit">Save</button>
+                        </div>
+                      </form>
+                    </details>
+                    <form method="post" action="{{ url_for('main.cash_entry_delete', entry_id=entry.id) }}" class="cash-delete-form">
+                      <button class="button" type="submit">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="7" class="muted-text">No cash entries yet for this meeting.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endfor %}
+{% endblock %}

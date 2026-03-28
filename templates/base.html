@@ -8,14 +8,36 @@
 </head>
 <body>
   <header class="site-header">
-    <div>
-      <p class="eyebrow">Lodge Admin</p>
-      <h1>Lodge Treasurer</h1>
+    <div class="site-header-top">
+      <div>
+        <p class="eyebrow">Lodge Admin</p>
+        <h1>Lodge Treasurer</h1>
+      </div>
+      <p class="subtitle">Keep the annual statement, cashbook, bank ledger, and member dues in one place.</p>
     </div>
-    <p class="subtitle">A starter app for dues, dinners, and member administration.</p>
+
+    <nav class="top-nav" aria-label="Primary">
+      <a class="nav-link {% if active_page == 'home' %}is-active{% endif %}" href="{{ url_for('main.dashboard') }}">Home</a>
+      <a class="nav-link {% if active_page == 'statement' %}is-active{% endif %}" href="{{ url_for('main.statement') }}">Statement</a>
+      <a class="nav-link {% if active_page == 'cash' %}is-active{% endif %}" href="{{ url_for('main.cash') }}">Cash</a>
+      <a class="nav-link {% if active_page == 'bank' %}is-active{% endif %}" href="{{ url_for('main.bank') }}">Bank</a>
+      <a class="nav-link {% if active_page == 'members' %}is-active{% endif %}" href="{{ url_for('main.members') }}">Members</a>
+      <a class="nav-link {% if active_page == 'settings' %}is-active{% endif %}" href="{{ url_for('main.settings') }}">Settings</a>
+      <a class="nav-link {% if active_page == 'help' %}is-active{% endif %}" href="{{ url_for('main.help_page') }}">Help</a>
+    </nav>
   </header>
 
   <main class="page-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <section class="flash-stack">
+          {% for category, message in messages %}
+            <article class="flash flash-{{ category }}">{{ message }}</article>
+          {% endfor %}
+        </section>
+      {% endif %}
+    {% endwith %}
+
     {% block content %}{% endblock %}
   </main>
 

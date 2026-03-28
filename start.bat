@@ -21,12 +21,11 @@ if not %errorlevel%==0 (
     goto :eof
 )
 
-if not exist ".venv" (
-    python -m venv .venv
-)
+set "TEMP=%CD%\.tmp"
+set "TMP=%TEMP%"
+if not exist "%TEMP%" mkdir "%TEMP%"
 
-call ".venv\Scripts\activate.bat"
-python -m pip install -r requirements.txt
+python -m pip install --user -r requirements.txt
 if not %errorlevel%==0 (
     echo Failed to install Python packages.
     pause
@@ -36,7 +35,7 @@ if not %errorlevel%==0 (
 python -c "import sqlite3, sys; db = sqlite3.connect(r'instance\Lodge.db'); cols = [row[1] for row in db.execute(\"PRAGMA table_info(members)\")]; sys.exit(0 if 'membership_number' in cols else 1)" >nul 2>nul
 if not %errorlevel%==0 (
     if exist "instance\Lodge.db" del /q "instance\Lodge.db"
-    flask --app app init-db
+    python -m flask --app app init-db
     if not %errorlevel%==0 (
         echo Failed to initialize the database.
         pause
@@ -45,7 +44,7 @@ if not %errorlevel%==0 (
 )
 
 if not exist "instance\Lodge.db" (
-    flask --app app init-db
+    python -m flask --app app init-db
     if not %errorlevel%==0 (
         echo Failed to initialize the database.
         pause
@@ -54,4 +53,4 @@ if not exist "instance\Lodge.db" (
 )
 
 start "" http://127.0.0.1:5000/
-flask --app app run --debug
+python -m flask --app app run --debug
