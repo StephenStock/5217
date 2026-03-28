@@ -50,10 +50,16 @@ if [[ -f /etc/5217/5217.env ]]; then
   set -a
   source /etc/5217/5217.env
   set +a
+elif [[ -f /etc/treasurer/treasurer.env ]]; then
+  # shellcheck disable=SC1091
+  set -a
+  source /etc/treasurer/treasurer.env
+  set +a
 fi
 
 if [[ -z "${TREASURER_DATABASE_URL:-}" ]]; then
   echo "TREASURER_DATABASE_URL is not set." >&2
+  echo "Expected /etc/5217/5217.env or /etc/treasurer/treasurer.env to define it." >&2
   exit 1
 fi
 

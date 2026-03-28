@@ -28,7 +28,7 @@ This note records the first production-style deployment setup for the 5217 app o
 1. Clone the repo on the Lightsail instance into `/home/ubuntu/5217`
 2. Create the virtual environment in `/home/ubuntu/5217/.venv`
 3. Copy `deploy/treasurer.service` to `/etc/systemd/system/treasurer.service`
-4. Create `/etc/5217/5217.env` with the database connection string
+4. Create `/etc/5217/5217.env` with the database connection string, or keep the legacy `/etc/treasurer/treasurer.env` file in place until the server is fully migrated
 5. Enable and start the service with `systemctl`
 6. Download or install an SSH private key on Windows so `deploy.bat` can reach the instance
 
@@ -37,12 +37,12 @@ This note records the first production-style deployment setup for the 5217 app o
 - Make code changes locally
 - Commit and push to GitHub
 - Run `deploy.bat` from Windows
-- `deploy.bat` SSHes into the Lightsail instance, ensures the repo lives at `/home/ubuntu/5217`, and then runs `deploy/deploy.sh`
+- `deploy.bat` SSHes into the Lightsail instance, ensures the repo lives at `/home/ubuntu/5217`, force-updates it to `origin/main`, and then runs `deploy/deploy.sh`
 - The server script pulls the latest code, installs dependencies, refreshes the schema if needed, and restarts the service
 
 ## Notes
 
-- Keep the database credentials out of the repo and store them in `/etc/5217/5217.env`
+- Keep the database credentials out of the repo and store them in `/etc/5217/5217.env` or the legacy `/etc/treasurer/treasurer.env` during the transition
 - Keep the web port closed to the public if a reverse proxy is added later
 - Once a domain is pointed at the server, we can add HTTPS and a proper reverse proxy
 - The SSH private key used by `deploy.bat` should live outside the repo, such as `%USERPROFILE%\\.ssh\\lodge-app.pem`
