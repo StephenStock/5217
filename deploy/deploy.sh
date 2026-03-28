@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$SCRIPT_DIR/..}"
 SERVICE_NAME="${SERVICE_NAME:-5217}"
+SERVICE_UNIT="${SERVICE_UNIT:-${SERVICE_NAME}.service}"
 PYTHON_BIN="${PYTHON_BIN:-$APP_DIR/.venv/bin/python}"
 PIP_BIN="${PIP_BIN:-$APP_DIR/.venv/bin/pip}"
 
@@ -82,5 +83,5 @@ sudo systemctl disable treasurer.service >/dev/null 2>&1 || true
 sudo systemctl daemon-reload
 
 echo "Restarting service..."
-sudo systemctl restart "$SERVICE_NAME"
-sudo systemctl --no-pager --full status "$SERVICE_NAME"
+sudo systemctl restart "$SERVICE_UNIT"
+sudo systemctl --no-pager --full status "$SERVICE_UNIT"
