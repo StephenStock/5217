@@ -73,6 +73,10 @@ else
   "$PYTHON_BIN" -m flask --app app init-db
 fi
 
+echo "Installing systemd service..."
+sudo install -m 0644 deploy/treasurer.service /etc/systemd/system/treasurer.service
+sudo systemctl daemon-reload
+
 echo "Restarting service..."
 sudo systemctl restart "$SERVICE_NAME"
 sudo systemctl --no-pager --full status "$SERVICE_NAME"

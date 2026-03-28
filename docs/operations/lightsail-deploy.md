@@ -39,6 +39,7 @@ This note records the first production-style deployment setup for the 5217 app o
 - Run `deploy.bat` from Windows
 - `deploy.bat` SSHes into the Lightsail instance, ensures the repo lives at `/home/ubuntu/5217`, force-updates it to `origin/main`, and then runs `deploy/deploy.sh`
 - The server script pulls the latest code, installs dependencies, refreshes the schema if needed, and restarts the service
+- The server script also installs the repo's systemd unit file before restarting so the service path stays in sync
 
 ## Notes
 
