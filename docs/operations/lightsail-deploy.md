@@ -14,7 +14,7 @@ This note records the first production-style deployment setup for the 5217 app o
 ## Runtime model
 
 - The app should run as a `systemd` service on the Lightsail instance
-- `gunicorn` should serve the Flask app in production instead of the Flask development server
+- `gunicorn` should serve the Flask app in production instead of the Flask development server, launched through the venv's Python
 - The app should read its database connection from `TREASURER_DATABASE_URL`
 
 ## Files in the repo

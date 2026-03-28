@@ -9,7 +9,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/5217
 EnvironmentFile=-/etc/5217/5217.env
 EnvironmentFile=-/etc/treasurer/treasurer.env
-ExecStart=/home/ubuntu/5217/.venv/bin/gunicorn --bind 0.0.0.0:5000 app:app
+ExecStart=/home/ubuntu/5217/.venv/bin/python -m gunicorn --bind 0.0.0.0:5000 app:app
 Restart=always
 RestartSec=5
 
