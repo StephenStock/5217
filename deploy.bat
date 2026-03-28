@@ -30,5 +30,8 @@ if errorlevel 1 (
 )
 
 echo Deploy completed successfully.
+echo Check the output above for the branch and commit that reached Lightsail.
+
+exit /b 0
 
 endlocal

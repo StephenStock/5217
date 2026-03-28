@@ -14,8 +14,19 @@ fi
 
 cd "$APP_DIR"
 
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+current_commit="$(git rev-parse --short HEAD)"
+echo "Current checkout: ${current_branch}@${current_commit}"
+
 echo "Pulling latest code..."
 git pull --ff-only
+
+new_commit="$(git rev-parse --short HEAD)"
+if [[ "$new_commit" != "$current_commit" ]]; then
+  echo "Updated checkout: ${current_branch}@${new_commit}"
+else
+  echo "Checkout unchanged: ${current_branch}@${new_commit}"
+fi
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Creating virtual environment..."
