@@ -9,6 +9,7 @@ This note records the current public website, the planned application hosting, a
 - Main lodge website: `https://5217.org.uk/`
 - Current site is WordPress-hosted and provides the lodge overview pages
 - Keep this site as-is for now so the public web presence is not disrupted
+- Use the WordPress site to point members to the public forms area only, not to the admin login
 
 ## Planned app layout
 
@@ -40,6 +41,7 @@ This note records the current public website, the planned application hosting, a
 
 - Reuse the existing domain instead of introducing a new public domain unless there is a strong reason to do so
 - Keep the WordPress site live while the new app is introduced gradually
+- Public members should be sent to `https://app.5217.org.uk/forms`, while the admin area stays private at `https://app.5217.org.uk`
 - Document any final DNS choices here once the subdomain is confirmed
 - While public mode is disabled, only Lightsail resources in the same region can connect to the database
 - See `docs/operations/lightsail-deploy.md` for the current server-side deploy plan

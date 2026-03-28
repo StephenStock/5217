@@ -13,6 +13,7 @@ This note records the intended public entry point for the Treasurer app and the 
 
 - Treasurer/Secretary app: `https://app.5217.org.uk/`
 - Public forms should live under paths such as `/forms`
+- The public WordPress site should link only to the forms area, not to the admin login
 
 ## Sequence
 
@@ -28,5 +29,6 @@ This note records the intended public entry point for the Treasurer app and the 
 - The app is already running on Lightsail with a static IP
 - The deployment flow is already in place through `deploy.bat`
 - The app already has a `/forms` landing route for the public area
+- Share `https://app.5217.org.uk` only with the internal admin users; share `https://app.5217.org.uk/forms` with members
 - The next live change should be the nginx reverse proxy, then HTTPS
 - Once DNS is pointed, HTTPS should be added before treating the app as public-facing
