@@ -22,9 +22,41 @@
             {{ meeting.meeting_date or "Date not set" }} | {{ meeting.meeting_type }}
           </p>
         </div>
-        <div class="cash-totals">
-          <span>In: &pound;{{ "%.2f"|format(meeting.total_in) }}</span>
-          <span>Out: &pound;{{ "%.2f"|format(meeting.total_out) }}</span>
+        <div class="cash-summary">
+          <div class="cash-totals">
+            <span>In: &pound;{{ "%.2f"|format(meeting.total_in) }}</span>
+            <span>Out: &pound;{{ "%.2f"|format(meeting.total_out) }}</span>
+            <span>Net to bank: &pound;{{ "%.2f"|format(meeting.net_to_bank) }}</span>
+          </div>
+          {% if meeting.settlement %}
+            <div class="cash-settlement-status">
+              <span class="pill">Settled</span>
+              <span class="section-note">
+                Banked on {{ meeting.settlement.bank_transaction_date or meeting.settlement.settlement_date }}
+                {% if meeting.settlement.bank_transaction_id %}
+                  · Bank row #{{ meeting.settlement.bank_transaction_id }}
+                {% endif %}
+              </span>
+            </div>
+          {% else %}
+            <div class="cash-settlement-status">
+              {% if meeting.net_to_bank > 0 %}
+                <form class="cash-settle-form" method="post" action="{{ url_for('main.cash_settle') }}">
+                  <input type="hidden" name="meeting_key" value="{{ meeting.meeting_key }}">
+                  <input
+                    type="date"
+                    name="settlement_date"
+                    value="{{ meeting.settlement_date_default }}"
+                    required
+                  >
+                  <input type="text" name="notes" placeholder="Settlement notes">
+                  <button class="button button-primary" type="submit">Settle cash</button>
+                </form>
+              {% else %}
+                <span class="section-note">Nothing to bank for this meeting.</span>
+              {% endif %}
+            </div>
+          {% endif %}
         </div>
       </div>
 

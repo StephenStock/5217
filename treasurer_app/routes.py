@@ -1,8 +1,12 @@
+from datetime import date
+
 from flask import Blueprint, flash, g, redirect, render_template, request, url_for
 
 from .db import (
     _dues_status,
     _find_existing_workbook,
+    cash_settlement_map,
+    create_cash_settlement,
     get_db,
     import_bank_statement_exports,
     import_bank_statement_uploads,
@@ -267,6 +271,8 @@ def _cash_page_context():
     db = get_db()
     reporting_period_id = _current_reporting_period_id()
     schedule = _meeting_schedule()
+    settlements = cash_settlement_map(db, reporting_period_id)
+    today = date.today().isoformat()
     categories = db.execute(
         """
         SELECT id, code, display_name, direction
@@ -329,6 +335,13 @@ def _cash_page_context():
                 "entries": meeting_entries,
                 "total_in": sum(float(row["money_in"] or 0) for row in meeting_entries),
                 "total_out": sum(float(row["money_out"] or 0) for row in meeting_entries),
+                "net_to_bank": round(
+                    sum(float(row["money_in"] or 0) for row in meeting_entries)
+                    - sum(float(row["money_out"] or 0) for row in meeting_entries),
+                    2,
+                ),
+                "settlement": settlements.get(meeting["meeting_key"]),
+                "settlement_date_default": meeting["meeting_date"] or today,
             }
         )
 
@@ -611,6 +624,56 @@ def balance_sheet(account_code: str):
 @main_bp.route("/cash")
 def cash():
     return render_template("cash.html", active_page="cash", **_cash_page_context())
+
+
+@main_bp.post("/cash/settle")
+def cash_settle():
+    db = get_db()
+    reporting_period_id = _current_reporting_period_id()
+    meeting_key = request.form.get("meeting_key", "").strip().upper()
+    settlement_date = request.form.get("settlement_date", "").strip()
+    notes = request.form.get("notes", "").strip() or None
+
+    if meeting_key not in {"SEPTEMBER", "NOVEMBER", "JANUARY", "MARCH", "MAY"}:
+        flash("Choose a valid meeting block.", "error")
+        return redirect(url_for("main.cash"))
+    if not settlement_date:
+        flash("Choose a settlement date.", "error")
+        return redirect(url_for("main.cash"))
+
+    meeting_row = db.execute(
+        """
+        SELECT meeting_name
+        FROM meetings
+        WHERE reporting_period_id = ? AND meeting_key = ?
+        """,
+        (reporting_period_id, meeting_key),
+    ).fetchone()
+    if meeting_row is None:
+        flash("That meeting could not be found.", "error")
+        return redirect(url_for("main.cash"))
+
+    details = f"Cash deposit for {meeting_row['meeting_name']}"
+
+    try:
+        create_cash_settlement(
+            db,
+            reporting_period_id,
+            meeting_key=meeting_key,
+            settlement_date=settlement_date,
+            details=details,
+            notes=notes,
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("main.cash"))
+    except RuntimeError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("main.cash"))
+
+    db.commit()
+    flash("Cash settlement created.", "success")
+    return redirect(url_for("main.cash"))
 
 
 @main_bp.post("/cash/entries/add")

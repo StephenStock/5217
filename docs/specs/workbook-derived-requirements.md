@@ -149,6 +149,8 @@ Requirements:
 - Calculate total cash in and total cash out
 - Record net retained amount where relevant
 - Keep meeting-level summaries
+- Allow the net cash from a meeting to be settled into the bank later without re-categorising the original cash entries
+- Link each cash settlement back to the bank deposit row so the bank ledger stays complete while the cash categorisation stays single-source
 
 ### 6. Bank transaction import and categorisation
 

@@ -443,6 +443,33 @@ table {
   text-align: right;
 }
 
+.cash-summary {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.cash-settlement-status {
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
+}
+
+.cash-settle-form {
+  display: grid;
+  grid-template-columns: 10rem 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.cash-settle-form input[type="date"],
+.cash-settle-form input[type="text"] {
+  width: 100%;
+  max-width: none;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.82rem;
+}
+
 .cash-add-form {
   display: grid;
   grid-template-columns: 1fr 1.4fr 1.2fr 0.7fr 0.7fr 1.4fr auto;
@@ -456,6 +483,24 @@ table {
   max-width: none;
   padding: 0.45rem 0.55rem;
   font-size: 0.82rem;
+}
+
+@media (max-width: 920px) {
+  .cash-summary {
+    justify-items: start;
+  }
+
+  .cash-totals {
+    text-align: left;
+  }
+
+  .cash-settlement-status {
+    justify-items: start;
+  }
+
+  .cash-settle-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cash-entry-edit {
