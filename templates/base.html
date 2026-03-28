@@ -15,7 +15,7 @@
       </div>
       <div class="header-meta">
         <p class="subtitle">Keep the annual statement, cashbook, bank ledger, and member dues in one place.</p>
-        {% if current_user %}
+        {% if current_user is not none %}
           <div class="user-chip">
             <span>{{ current_user.full_name }}</span>
             <span>{{ current_user.role }}</span>
@@ -29,7 +29,7 @@
       </div>
     </div>
 
-    {% if current_user %}
+    {% if current_user is not none %}
       <nav class="top-nav" aria-label="Primary">
         <a class="nav-link {% if active_page == 'home' %}is-active{% endif %}" href="{{ url_for('main.dashboard') }}">Home</a>
         <a class="nav-link {% if active_page == 'statement' %}is-active{% endif %}" href="{{ url_for('main.statement') }}">Statement</a>
