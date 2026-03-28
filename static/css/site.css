@@ -387,12 +387,12 @@ table {
 
 .compact-ledger th,
 .compact-ledger td {
-  padding: 0.42rem 0.35rem;
-  line-height: 1.12;
+  padding: 0.3rem 0.28rem;
+  line-height: 1.02;
 }
 
 .compact-ledger th {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
 }
 
 .compact-ledger td {
@@ -517,10 +517,10 @@ table {
 
 .cash-edit-form {
   display: grid;
-  gap: 0.5rem;
-  width: 230px;
-  padding: 0.75rem;
-  margin-top: 0.6rem;
+  gap: 0.35rem;
+  width: 210px;
+  padding: 0.6rem;
+  margin-top: 0.4rem;
   border: 1px solid rgba(215, 199, 172, 0.55);
   border-radius: 14px;
   background: rgba(255, 250, 241, 0.96);
@@ -536,11 +536,18 @@ table {
 .cash-edit-form input,
 .cash-edit-form select {
   width: 100%;
-  padding: 0.42rem 0.5rem;
+  padding: 0.34rem 0.45rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-strong);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+}
+
+.cash-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  flex-wrap: wrap;
 }
 
 .cash-edit-actions,
@@ -550,7 +557,17 @@ table {
 }
 
 .cash-delete-form {
-  margin-top: 0.35rem;
+  margin-top: 0;
+}
+
+.cash-entry-edit summary.button,
+.cash-delete-form .button {
+  padding: 0.38rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+.cash-delete-form .button {
+  min-width: 0;
 }
 
 .settings-form {
