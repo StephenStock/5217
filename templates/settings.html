@@ -15,6 +15,35 @@
 
   <section class="panel">
     <form method="post" class="settings-form">
+      <div class="panel-heading">
+        <div>
+          <h3>Virtual Account Opening Balances</h3>
+          <p class="section-note">These balances carry into the new year on 1 August and feed the balance sheet section of the statement.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="settings-table compact-ledger">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Opening Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for account in virtual_accounts %}
+              <tr>
+                <td>{{ account.display_name }}</td>
+                <td>
+                  <input type="number" step="0.01" name="{{ account.code }}_opening_balance" value="{{ '%.2f'|format(account.opening_balance) }}">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="settings-divider"></div>
+
       <div class="table-scroll">
         <table class="settings-table compact-ledger">
           <thead>
@@ -52,7 +81,7 @@
       </div>
 
       <div class="settings-actions">
-        <button class="button button-primary" type="submit">Save Meeting Settings</button>
+        <button class="button button-primary" type="submit">Save Settings</button>
       </div>
     </form>
   </section>

@@ -6,6 +6,8 @@ instance/
 *.db
 *.sqlite
 *.sqlite3
+.tmp/
+Transactions_Export_*.csv
 
 Accounts*.xlsx
 !LodgeAccounts_Template.xlsx

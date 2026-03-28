@@ -1,8 +1,22 @@
+import os
 from pathlib import Path
 
 from flask import Flask
 
-from .db import close_db, ensure_financial_tables, ensure_instance_path, get_db, init_app, seed_ledger_categories, seed_meeting_schedule
+from .db import (
+    close_db,
+    ensure_database_parent_path,
+    ensure_financial_tables,
+    get_db,
+    init_app,
+    seed_ledger_categories,
+    seed_meeting_schedule,
+    seed_virtual_account_balances,
+    seed_virtual_accounts,
+    seed_virtual_account_category_map,
+    _is_postgres_dsn,
+    table_exists,
+)
 from .routes import main_bp
 
 
@@ -16,28 +30,37 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
     app.config.from_mapping(
         SECRET_KEY="change-me",
-        DATABASE=str(Path(app.instance_path) / "Lodge.db"),
+        DATABASE=os.environ.get(
+            "TREASURER_DATABASE_URL",
+            "postgresql://treasurer:lodge@192.168.1.201:5432/treasurer",
+        ),
     )
 
     if test_config is not None:
         app.config.update(test_config)
 
-    ensure_instance_path(app)
+    if not _is_postgres_dsn(app.config["DATABASE"]):
+        ensure_database_parent_path(Path(app.config["DATABASE"]))
     init_app(app)
     app.teardown_appcontext(close_db)
     app.register_blueprint(main_bp)
 
     with app.app_context():
         db = get_db()
-        ensure_financial_tables(db)
-        seed_ledger_categories(db)
-        has_reporting_periods = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='reporting_periods'"
-        ).fetchone()
-        if has_reporting_periods:
-            period_count = db.execute("SELECT COUNT(*) AS total FROM reporting_periods").fetchone()["total"]
-            if period_count > 0:
-                seed_meeting_schedule(db, reporting_period_id=1)
-        db.commit()
+        if table_exists(db, "users"):
+            ensure_financial_tables(db)
+            seed_ledger_categories(db)
+            seed_virtual_accounts(db)
+            seed_virtual_account_category_map(db)
+            if table_exists(db, "reporting_periods"):
+                period_count = db.execute("SELECT COUNT(*) AS total FROM reporting_periods").fetchone()["total"]
+                if period_count > 0:
+                    seed_meeting_schedule(db, reporting_period_id=1)
+                    current_period = db.execute(
+                        "SELECT id FROM reporting_periods WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    if current_period:
+                        seed_virtual_account_balances(db, reporting_period_id=current_period["id"])
+            db.commit()
 
     return app

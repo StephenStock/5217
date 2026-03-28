@@ -125,4 +125,45 @@
       </article>
     </div>
   </section>
+
+  <section class="panel statement-panel">
+    <div class="panel-heading">
+      <div>
+        <h3>Balance Sheet</h3>
+        <p class="section-note">Virtual lodge accounts with opening balances from Settings and movement driven from the ledger.</p>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table class="statement-table compact-ledger">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Opening</th>
+            <th>In</th>
+            <th>Out</th>
+            <th>Closing</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for account in balance_rows %}
+            <tr>
+              <td>{{ account.display_name }}</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(account.opening_balance) }}</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(account.total_in) }}</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(account.total_out) }}</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(account.closing_balance) }}</td>
+            </tr>
+          {% endfor %}
+          <tr class="totals-row">
+            <td>Total</td>
+            <td class="money-cell">-</td>
+            <td class="money-cell">-</td>
+            <td class="money-cell">-</td>
+            <td class="money-cell">&pound;{{ "%.2f"|format(balance_total) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 {% endblock %}

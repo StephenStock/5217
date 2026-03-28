@@ -24,7 +24,9 @@ This will:
 3. Initialize the SQLite database on first run
 4. Start the development server at `http://127.0.0.1:5000`
 
-The SQLite database file is created at `instance\Lodge.db`.
+The live SQLite database file is created at `%LOCALAPPDATA%\Treasurer\Lodge.db` by default. You can override that by setting the `TREASURER_DATABASE` environment variable before launching the app.
+
+`start.bat` prefers `py -3` when available, so the other machine should have Python 3.10 or newer installed.
 
 ## Default seeded account
 

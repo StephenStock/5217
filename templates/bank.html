@@ -10,9 +10,16 @@
     </div>
     <div class="hero-note hero-actions">
       <form method="post" action="{{ url_for('main.bank_import') }}">
-        <button class="button button-primary" type="submit">Import From Workbook</button>
+        <button class="button button-primary" type="submit">Import Statement CSVs</button>
       </form>
-      <p>The import reads the `Bank` sheet and skips rows already loaded into the ledger.</p>
+      <p>The import refreshes the downloaded statement files, updating only statement columns and leaving notes or category allocations untouched.</p>
+      {% if bank_summary.uncategorised_transactions %}
+        <p class="attention-banner">
+          {{ bank_summary.uncategorised_transactions }} uncategorised row{{ 's' if bank_summary.uncategorised_transactions != 1 else '' }} need attention.
+        </p>
+      {% else %}
+        <p class="attention-banner attention-banner-ok">All imported rows currently have a category.</p>
+      {% endif %}
     </div>
   </section>
 
@@ -59,7 +66,7 @@
         </thead>
         <tbody id="bankTable">
           {% for transaction in bank_transactions %}
-            <tr class="{% if transaction.is_opening_balance %}opening-balance{% endif %}">
+            <tr class="{% if transaction.is_opening_balance %}opening-balance{% endif %}{% if transaction.needs_attention %} needs-attention{% endif %}">
               <td>{{ transaction.transaction_date or "-" }}</td>
               <td class="details-cell">{{ transaction.details }}</td>
               <td>{{ transaction.transaction_type or "-" }}</td>
@@ -70,28 +77,39 @@
                 {% if transaction.is_opening_balance %}
                   <span class="muted-text">Opening balance</span>
                 {% else %}
-                  <form
-                    class="bank-category-form"
-                    method="post"
-                    action="{{ url_for('main.bank_assign', transaction_id=transaction.id) }}"
-                  >
-                    <label class="sr-only" for="category-{{ transaction.id }}">Category</label>
-                    <select
-                      id="category-{{ transaction.id }}"
-                      name="ledger_category_id"
-                      class="bank-category-select"
-                      data-autosubmit="true"
-                      required
+                  <div class="bank-category-wrap">
+                    <form
+                      class="bank-category-form"
+                      method="post"
+                      action="{{ url_for('main.bank_assign', transaction_id=transaction.id) }}"
+                      data-ajax="true"
                     >
-                      <option value="">Choose category</option>
-                      {% for category in ledger_categories %}
-                        <option value="{{ category.id }}" {% if transaction.selected_category_id == category.id %}selected{% endif %}>
-                          {{ category.display_name }}
-                        </option>
-                      {% endfor %}
-                    </select>
-                    <input type="hidden" name="amount" value="{{ '%.2f'|format(transaction.net_amount) }}">
-                  </form>
+                      <label class="sr-only" for="category-{{ transaction.id }}">Category</label>
+                      <select
+                        id="category-{{ transaction.id }}"
+                        name="ledger_category_id"
+                        class="bank-category-select"
+                        data-autosubmit="true"
+                        required
+                      >
+                        <option value="">Choose category</option>
+                        {% for category in ledger_categories %}
+                          <option value="{{ category.id }}" {% if transaction.selected_category_id == category.id %}selected{% endif %}>
+                            {{ category.display_name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                      <input type="hidden" name="amount" value="{{ '%.2f'|format(transaction.net_amount) }}">
+                    </form>
+                    <span
+                      class="bank-row-status {% if transaction.needs_attention %}is-needed{% endif %}"
+                      data-row-status="{{ transaction.id }}"
+                      aria-live="polite"
+                      title="{% if transaction.needs_attention %}Needs category{% endif %}"
+                    >
+                      {% if transaction.needs_attention %}•{% endif %}
+                    </span>
+                  </div>
                 {% endif %}
               </td>
             </tr>

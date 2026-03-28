@@ -19,6 +19,15 @@
     <nav class="top-nav" aria-label="Primary">
       <a class="nav-link {% if active_page == 'home' %}is-active{% endif %}" href="{{ url_for('main.dashboard') }}">Home</a>
       <a class="nav-link {% if active_page == 'statement' %}is-active{% endif %}" href="{{ url_for('main.statement') }}">Statement</a>
+      <details class="nav-menu">
+        <summary class="nav-link {% if active_page == 'balances' %}is-active{% endif %}">Balances</summary>
+        <div class="nav-menu-list">
+          <a class="nav-menu-item" href="{{ url_for('main.balances_index') }}">Overview</a>
+          {% for account in balance_nav_accounts %}
+            <a class="nav-menu-item" href="{{ url_for('main.balance_sheet', account_code=account.code) }}">{{ account.display_name }}</a>
+          {% endfor %}
+        </div>
+      </details>
       <a class="nav-link {% if active_page == 'cash' %}is-active{% endif %}" href="{{ url_for('main.cash') }}">Cash</a>
       <a class="nav-link {% if active_page == 'bank' %}is-active{% endif %}" href="{{ url_for('main.bank') }}">Bank</a>
       <a class="nav-link {% if active_page == 'members' %}is-active{% endif %}" href="{{ url_for('main.members') }}">Members</a>

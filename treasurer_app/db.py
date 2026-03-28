@@ -1,11 +1,16 @@
+import csv
+import difflib
+import os
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import current_app, g
+import psycopg
+from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash
 
 
@@ -13,6 +18,25 @@ WORKBOOK_BANK_SHEET = "Bank"
 WORKBOOK_CANDIDATES = (
     "Accounts 2025-26.xlsx",
     "LodgeAccounts_Template.xlsx",
+)
+
+MIGRATION_TABLE_ORDER = (
+    "users",
+    "reporting_periods",
+    "member_types",
+    "members",
+    "dues",
+    "events",
+    "messages",
+    "subscription_charges",
+    "dining_charges",
+    "payments",
+    "ledger_categories",
+    "bank_transactions",
+    "bank_transaction_allocations",
+    "meetings",
+    "cashbook_entries",
+    "bookings",
 )
 
 BANK_CATEGORY_DEFINITIONS = [
@@ -38,6 +62,34 @@ BANK_CATEGORY_DEFINITIONS = [
     ("BANK_CHARGES", "Bank Charges", "out", 200),
     ("WIDOWS", "Widows", "out", 210),
 ]
+
+VIRTUAL_ACCOUNT_DEFINITIONS = [
+    ("MAIN", "Main", 10),
+    ("CHARITY", "Charity", 20),
+    ("GLASGOW", "Glasgow", 30),
+    ("FRANK", "Frank", 40),
+    ("LOI", "LOI", 50),
+    ("SUBS", "Subs", 60),
+    ("DINING", "Dining", 70),
+    ("PRE_SUBS", "Pre-Paid Subs", 80),
+    ("PRE_DINING", "Pre-Paid Dining", 90),
+    ("BENEVOLENT", "Benevolent Fund", 100),
+    ("CENTENARY", "Centeneraty Fund", 110),
+]
+
+VIRTUAL_ACCOUNT_CATEGORY_MAP = {
+    "MAIN": ["CASH", "INITIATION", "SUMUP", "BANK_CHARGES"],
+    "CHARITY": ["DONATIONS_IN", "DONATIONS_OUT"],
+    "GLASGOW": ["UGLE", "PGLE"],
+    "FRANK": ["ORSETT", "WOOLMKT", "CATERER"],
+    "LOI": ["LOI", "CHAPTER_LOI"],
+    "SUBS": ["SUBS"],
+    "DINING": ["DINING", "VISITOR"],
+    "PRE_SUBS": ["PRE_SUBS"],
+    "PRE_DINING": ["PRE_DINING"],
+    "BENEVOLENT": ["RELIEF", "WIDOWS"],
+    "CENTENARY": ["GAVEL"],
+}
 
 BANK_COLUMN_CATEGORY_CODES = {
     "L": "CASH",
@@ -73,11 +125,93 @@ def ensure_instance_path(app) -> None:
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
 
-def get_db() -> sqlite3.Connection:
+def default_database_path() -> Path:
+    configured = os.environ.get("TREASURER_DATABASE")
+    if configured:
+        return Path(configured)
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "Treasurer" / "Lodge.db"
+
+    return _project_root() / "instance" / "Lodge.db"
+
+
+def ensure_database_parent_path(database_path: Path) -> None:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _is_postgres_dsn(database_spec: str) -> bool:
+    return database_spec.startswith(("postgresql://", "postgres://"))
+
+
+def _translate_placeholders(sql: str) -> str:
+    return sql.replace("?", "%s")
+
+
+class DatabaseHandle:
+    def __init__(self, connection, backend: str):
+        self._connection = connection
+        self.backend = backend
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        if self.backend == "postgres":
+            sql = _translate_placeholders(sql)
+            if params is None:
+                return self._connection.execute(sql)
+            return self._connection.execute(sql, tuple(params))
+        if params is None:
+            return self._connection.execute(sql)
+        return self._connection.execute(sql, params)
+
+    def executemany(self, sql: str, params_seq):
+        if self.backend == "postgres":
+            sql = _translate_placeholders(sql)
+            with self._connection.cursor() as cursor:
+                return cursor.executemany(sql, [tuple(params) for params in params_seq])
+        return self._connection.executemany(sql, params_seq)
+
+    def executescript(self, script: str):
+        if self.backend == "postgres":
+            statements = [statement.strip() for statement in script.split(";") if statement.strip()]
+            result = None
+            for statement in statements:
+                result = self._connection.execute(statement)
+            return result
+        return self._connection.executescript(script)
+
+    def commit(self) -> None:
+        self._connection.commit()
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+def get_db() -> DatabaseHandle:
     if "db" not in g:
-        g.db = sqlite3.connect(current_app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
+        database_spec = current_app.config["DATABASE"]
+        if _is_postgres_dsn(database_spec):
+            connection = psycopg.connect(database_spec, row_factory=dict_row)
+            g.db = DatabaseHandle(connection, "postgres")
+        else:
+            connection = sqlite3.connect(database_spec)
+            connection.row_factory = sqlite3.Row
+            g.db = DatabaseHandle(connection, "sqlite")
     return g.db
+
+
+def table_exists(db: DatabaseHandle, table_name: str) -> bool:
+    if db.backend == "postgres":
+        row = db.execute("SELECT to_regclass(?) AS table_name", (f"public.{table_name}",)).fetchone()
+        return bool(row and row["table_name"])
+    row = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
 
 
 def close_db(_error=None) -> None:
@@ -100,6 +234,316 @@ def _find_existing_workbook() -> Path | None:
         if path.exists():
             return path
     return None
+
+
+def _candidate_statement_csv_paths() -> list[Path]:
+    root = _project_root()
+    return sorted(
+        [
+            path
+            for path in root.glob("Transactions_Export*.csv")
+            if path.is_file()
+        ],
+        key=lambda path: path.name.lower(),
+    )
+
+
+def _normalize_statement_text(raw_value: str | None) -> str:
+    if raw_value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(raw_value)).strip().upper()
+
+
+def _tokenize_match_text(raw_value: str | None) -> set[str]:
+    normalized = _normalize_statement_text(raw_value)
+    return {token for token in re.split(r"[^A-Z0-9]+", normalized) if token}
+
+
+def _parse_statement_date(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+
+    value = str(raw_value).strip()
+    for format_string in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, format_string).date().isoformat()
+        except ValueError:
+            continue
+    return value
+
+
+def _parse_statement_amount(raw_value: str | None) -> float:
+    if raw_value in (None, ""):
+        return 0.0
+    return round(float(str(raw_value).replace(",", "").strip()), 2)
+
+
+def _bank_transaction_match_query(
+    db: sqlite3.Connection,
+    transaction_date: str | None,
+    details: str,
+    transaction_type: str | None,
+    money_in: float,
+    money_out: float,
+    running_balance: float | None,
+) -> sqlite3.Row | None:
+    if running_balance is None:
+        balance_clause = "bt.running_balance IS NULL"
+        balance_params: tuple[object, ...] = ()
+    else:
+        balance_clause = "ROUND(CAST(bt.running_balance AS numeric), 2) = ?"
+        balance_params = (round(float(running_balance), 2),)
+
+    query = f"""
+        SELECT *
+        FROM bank_transactions bt
+        WHERE COALESCE(bt.transaction_date, '') = ?
+          AND UPPER(TRIM(bt.details)) = ?
+          AND COALESCE(UPPER(TRIM(bt.transaction_type)), '') = ?
+          AND ROUND(CAST(bt.money_in AS numeric), 2) = ?
+          AND ROUND(CAST(bt.money_out AS numeric), 2) = ?
+          AND {balance_clause}
+        ORDER BY bt.id ASC
+        LIMIT 1
+    """
+    return db.execute(
+        query,
+        (
+            transaction_date or "",
+            _normalize_statement_text(details),
+            _normalize_statement_text(transaction_type),
+            round(money_in, 2),
+            round(money_out, 2),
+            *balance_params,
+        ),
+    ).fetchone()
+
+
+def _score_bank_transaction_match(
+    target_date: str | None,
+    details: str,
+    transaction_type: str | None,
+    candidate: dict[str, object],
+) -> float:
+    score = 0.0
+    target_details = _normalize_statement_text(details)
+    candidate_details = _normalize_statement_text(candidate.get("details"))
+    target_type = _normalize_statement_text(transaction_type)
+    candidate_type = _normalize_statement_text(candidate.get("transaction_type"))
+
+    if target_details and candidate_details:
+        if target_details == candidate_details:
+            score += 100.0
+        else:
+            ratio = difflib.SequenceMatcher(None, target_details, candidate_details).ratio()
+            score += ratio * 60.0
+
+        target_tokens = _tokenize_match_text(details)
+        candidate_tokens = _tokenize_match_text(candidate.get("details"))
+        if target_tokens and candidate_tokens:
+            overlap = len(target_tokens & candidate_tokens) / len(target_tokens | candidate_tokens)
+            score += overlap * 40.0
+
+    if target_type and candidate_type:
+        if target_type == candidate_type:
+            score += 20.0
+        else:
+            score -= 10.0
+
+    candidate_date = candidate.get("transaction_date")
+    if target_date and candidate_date:
+        try:
+            target_dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+            candidate_dt = datetime.strptime(str(candidate_date), "%Y-%m-%d").date()
+            day_gap = abs((target_dt - candidate_dt).days)
+            score += max(0.0, 15.0 - min(day_gap, 15))
+        except ValueError:
+            pass
+
+    if candidate.get("money_in") is not None and candidate.get("money_out") is not None:
+        target_money = float(candidate.get("money_in") or 0) + float(candidate.get("money_out") or 0)
+        score += max(0.0, 5.0 - abs(target_money - (float(candidate.get("money_in") or 0) + float(candidate.get("money_out") or 0))))
+
+    return score
+
+
+def _upsert_bank_transaction(
+    db: sqlite3.Connection,
+    reporting_period_id: int,
+    *,
+    source_workbook: str,
+    source_sheet: str,
+    source_row_number: int,
+    transaction_date: str | None,
+    details: str,
+    transaction_type: str | None,
+    money_in: float,
+    money_out: float,
+    running_balance: float | None,
+    is_opening_balance: int = 0,
+) -> str:
+    existing = db.execute(
+        """
+        SELECT id
+        FROM bank_transactions
+        WHERE source_workbook = ?
+          AND source_sheet = ?
+          AND source_row_number = ?
+        LIMIT 1
+        """,
+        (source_workbook, source_sheet, source_row_number),
+    ).fetchone()
+
+    if existing is None:
+        existing = _bank_transaction_match_query(
+            db,
+            transaction_date,
+            details,
+            transaction_type,
+            money_in,
+            money_out,
+            running_balance,
+        )
+
+    if existing is None:
+        db.execute(
+            """
+            INSERT INTO bank_transactions (
+                reporting_period_id,
+                transaction_date,
+                details,
+                transaction_type,
+                money_in,
+                money_out,
+                running_balance,
+                is_opening_balance,
+                source_workbook,
+                source_sheet,
+                source_row_number
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reporting_period_id,
+                transaction_date,
+                details,
+                transaction_type,
+                round(money_in, 2),
+                round(money_out, 2),
+                running_balance,
+                is_opening_balance,
+                source_workbook,
+                source_sheet,
+                source_row_number,
+            ),
+        )
+        return "inserted"
+
+    db.execute(
+        """
+        UPDATE bank_transactions
+        SET
+            reporting_period_id = ?,
+            transaction_date = ?,
+            details = ?,
+            transaction_type = ?,
+            money_in = ?,
+            money_out = ?,
+            running_balance = ?,
+            is_opening_balance = ?,
+            source_workbook = ?,
+            source_sheet = ?,
+            source_row_number = ?
+        WHERE id = ?
+        """,
+        (
+            reporting_period_id,
+            transaction_date,
+            details,
+            transaction_type,
+            round(money_in, 2),
+            round(money_out, 2),
+            running_balance,
+            is_opening_balance,
+            source_workbook,
+            source_sheet,
+            source_row_number,
+            existing["id"],
+        ),
+    )
+    return "updated"
+
+
+def _import_bank_statement_csv(
+    db: sqlite3.Connection,
+    reporting_period_id: int,
+    csv_path: Path,
+) -> dict[str, int]:
+    inserted = 0
+    updated = 0
+
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row_number, row in enumerate(reader, start=2):
+            if not row:
+                continue
+
+            transaction_date = _parse_statement_date(row.get("Date"))
+            details = (row.get("Details") or "").strip()
+            transaction_type = (row.get("Transaction Type") or "").strip() or None
+            money_in = _parse_statement_amount(row.get("In"))
+            money_out = _parse_statement_amount(row.get("Out"))
+            running_balance = _parse_statement_amount(row.get("Balance"))
+
+            if (
+                not transaction_date
+                and not details
+                and transaction_type is None
+                and money_in == 0
+                and money_out == 0
+                and running_balance == 0
+            ):
+                continue
+
+            action = _upsert_bank_transaction(
+                db,
+                reporting_period_id,
+                source_workbook=csv_path.name,
+                source_sheet="CSV",
+                source_row_number=row_number,
+                transaction_date=transaction_date,
+                details=details or "Imported statement row",
+                transaction_type=transaction_type,
+                money_in=money_in,
+                money_out=money_out,
+                running_balance=running_balance,
+            )
+
+            if action == "inserted":
+                inserted += 1
+            else:
+                updated += 1
+
+    return {"inserted": inserted, "updated": updated}
+
+
+def import_bank_statement_exports(
+    db: sqlite3.Connection,
+    reporting_period_id: int = 1,
+    statement_paths: list[Path] | None = None,
+) -> dict[str, int]:
+    paths = statement_paths if statement_paths is not None else _candidate_statement_csv_paths()
+    totals = {"files": 0, "inserted": 0, "updated": 0}
+
+    for path in paths:
+        if not path.exists() or not path.is_file():
+            continue
+        file_totals = _import_bank_statement_csv(db, reporting_period_id, path)
+        totals["files"] += 1
+        totals["inserted"] += file_totals["inserted"]
+        totals["updated"] += file_totals["updated"]
+
+    return totals
 
 
 def _excel_serial_to_iso_date(raw_value: str | None) -> str | None:
@@ -193,10 +637,53 @@ def _read_sheet_rows(workbook_path: Path, sheet_name: str) -> list[tuple[int, di
 def seed_ledger_categories(db: sqlite3.Connection) -> None:
     db.executemany(
         """
-        INSERT OR IGNORE INTO ledger_categories (code, display_name, direction, sort_order)
+        INSERT INTO ledger_categories (code, display_name, direction, sort_order)
         VALUES (?, ?, ?, ?)
+        ON CONFLICT (code) DO NOTHING
         """,
         BANK_CATEGORY_DEFINITIONS,
+    )
+
+
+def seed_virtual_accounts(db: sqlite3.Connection) -> None:
+    db.executemany(
+        """
+        INSERT INTO virtual_accounts (code, display_name, sort_order)
+        VALUES (?, ?, ?)
+        ON CONFLICT (code) DO NOTHING
+        """,
+        VIRTUAL_ACCOUNT_DEFINITIONS,
+    )
+
+
+def seed_virtual_account_category_map(db: sqlite3.Connection) -> None:
+    account_ids = {
+        row["code"]: row["id"]
+        for row in db.execute("SELECT id, code FROM virtual_accounts").fetchall()
+    }
+    category_ids = {
+        row["code"]: row["id"]
+        for row in db.execute("SELECT id, code FROM ledger_categories").fetchall()
+    }
+    mappings: list[tuple[int, int]] = []
+    for account_code, category_codes in VIRTUAL_ACCOUNT_CATEGORY_MAP.items():
+        account_id = account_ids.get(account_code)
+        if account_id is None:
+            continue
+        for category_code in category_codes:
+            category_id = category_ids.get(category_code)
+            if category_id is None:
+                continue
+            mappings.append((account_id, category_id))
+
+    db.execute("DELETE FROM virtual_account_category_map")
+
+    db.executemany(
+        """
+        INSERT INTO virtual_account_category_map (virtual_account_id, ledger_category_id)
+        VALUES (?, ?)
+        """,
+        mappings,
     )
 
 
@@ -204,16 +691,16 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS ledger_categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             code TEXT NOT NULL UNIQUE,
             display_name TEXT NOT NULL,
             direction TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
         );
 
         CREATE TABLE IF NOT EXISTS bank_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             reporting_period_id INTEGER NOT NULL,
             transaction_date TEXT,
             details TEXT NOT NULL,
@@ -226,24 +713,24 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
             source_sheet TEXT,
             source_row_number INTEGER,
             notes TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
             FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
             UNIQUE (source_workbook, source_sheet, source_row_number)
         );
 
         CREATE TABLE IF NOT EXISTS bank_transaction_allocations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             bank_transaction_id INTEGER NOT NULL,
             ledger_category_id INTEGER NOT NULL,
             amount REAL NOT NULL,
             notes TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
             FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions (id) ON DELETE CASCADE,
             FOREIGN KEY (ledger_category_id) REFERENCES ledger_categories (id)
         );
 
         CREATE TABLE IF NOT EXISTS meetings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             reporting_period_id INTEGER NOT NULL,
             meeting_key TEXT NOT NULL UNIQUE,
             meeting_name TEXT NOT NULL,
@@ -251,12 +738,12 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
             meeting_type TEXT NOT NULL DEFAULT 'Regular',
             sort_order INTEGER NOT NULL DEFAULT 0,
             notes TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
             FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id)
         );
 
         CREATE TABLE IF NOT EXISTS cashbook_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             reporting_period_id INTEGER NOT NULL,
             meeting_key TEXT NOT NULL CHECK (meeting_key IN ('SEPTEMBER', 'NOVEMBER', 'JANUARY', 'MARCH', 'MAY')),
             entry_type TEXT NOT NULL,
@@ -266,9 +753,37 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
             money_in REAL NOT NULL DEFAULT 0,
             money_out REAL NOT NULL DEFAULT 0,
             notes TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
             FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
             FOREIGN KEY (member_id) REFERENCES members (id),
+            FOREIGN KEY (ledger_category_id) REFERENCES ledger_categories (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS virtual_accounts (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+        );
+
+        CREATE TABLE IF NOT EXISTS virtual_account_balances (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            reporting_period_id INTEGER NOT NULL,
+            virtual_account_id INTEGER NOT NULL,
+            opening_balance REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
+            FOREIGN KEY (reporting_period_id) REFERENCES reporting_periods (id),
+            FOREIGN KEY (virtual_account_id) REFERENCES virtual_accounts (id),
+            UNIQUE (reporting_period_id, virtual_account_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS virtual_account_category_map (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            virtual_account_id INTEGER NOT NULL,
+            ledger_category_id INTEGER NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
+            FOREIGN KEY (virtual_account_id) REFERENCES virtual_accounts (id),
             FOREIGN KEY (ledger_category_id) REFERENCES ledger_categories (id)
         );
 
@@ -279,6 +794,7 @@ def ensure_financial_tables(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_meetings_reporting_period_id ON meetings (reporting_period_id);
         CREATE INDEX IF NOT EXISTS idx_meetings_sort_order ON meetings (sort_order);
         CREATE INDEX IF NOT EXISTS idx_cashbook_entries_meeting_key ON cashbook_entries (meeting_key);
+        CREATE INDEX IF NOT EXISTS idx_virtual_account_balances_reporting_period_id ON virtual_account_balances (reporting_period_id);
         """
     )
 
@@ -320,15 +836,31 @@ def seed_meeting_schedule(db: sqlite3.Connection, reporting_period_id: int = 1) 
 
     db.executemany(
         """
-        INSERT OR IGNORE INTO meetings (
+        INSERT INTO meetings (
             reporting_period_id, meeting_key, meeting_name, meeting_date, meeting_type, sort_order, notes
         )
         VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (meeting_key) DO NOTHING
         """,
         [
             (reporting_period_id, key, name, meeting_date, meeting_type, sort_order, notes)
             for key, name, meeting_date, meeting_type, sort_order, notes in meeting_rows
         ],
+    )
+
+
+def seed_virtual_account_balances(db: sqlite3.Connection, reporting_period_id: int = 1) -> None:
+    virtual_accounts = db.execute("SELECT id FROM virtual_accounts").fetchall()
+    if not virtual_accounts:
+        return
+
+    db.executemany(
+        """
+        INSERT INTO virtual_account_balances (reporting_period_id, virtual_account_id, opening_balance)
+        VALUES (?, ?, 0)
+        ON CONFLICT (reporting_period_id, virtual_account_id) DO NOTHING
+        """,
+        [(reporting_period_id, row["id"]) for row in virtual_accounts],
     )
 
 
@@ -360,56 +892,47 @@ def import_bank_transactions_from_workbook(
         money_out = _to_amount(row.get("E"))
         running_balance = row.get("F")
 
-        cursor = db.execute(
-            """
-            INSERT OR IGNORE INTO bank_transactions (
-                reporting_period_id,
-                transaction_date,
-                details,
-                transaction_type,
-                money_in,
-                money_out,
-                running_balance,
-                is_opening_balance,
-                source_workbook,
-                source_sheet,
-                source_row_number
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                reporting_period_id,
-                transaction_date,
-                details or "Imported transaction",
-                transaction_type or None,
-                money_in,
-                money_out,
-                float(running_balance) if running_balance not in (None, "") else None,
-                1 if details == "Opening Balance" else 0,
-                workbook_path.name,
-                WORKBOOK_BANK_SHEET,
-                row_number,
-            ),
+        action = _upsert_bank_transaction(
+            db,
+            reporting_period_id,
+            source_workbook=workbook_path.name,
+            source_sheet=WORKBOOK_BANK_SHEET,
+            source_row_number=row_number,
+            transaction_date=transaction_date,
+            details=details or "Imported transaction",
+            transaction_type=transaction_type or None,
+            money_in=money_in,
+            money_out=money_out,
+            running_balance=float(running_balance) if running_balance not in (None, "") else None,
+            is_opening_balance=1 if details == "Opening Balance" else 0,
         )
-        if cursor.rowcount == 0:
-            continue
-        bank_transaction_id = cursor.lastrowid
 
-        for column, category_code in BANK_COLUMN_CATEGORY_CODES.items():
-            amount = _to_amount(row.get(column))
-            if amount == 0:
-                continue
-            db.execute(
+        if action == "inserted":
+            bank_transaction = db.execute(
                 """
-                INSERT INTO bank_transaction_allocations (
-                    bank_transaction_id, ledger_category_id, amount
-                )
-                VALUES (?, ?, ?)
+                SELECT id
+                FROM bank_transactions
+                WHERE source_workbook = ? AND source_sheet = ? AND source_row_number = ?
+                LIMIT 1
                 """,
-                (bank_transaction_id, category_ids[category_code], amount),
-            )
-
-        imported += 1
+                (workbook_path.name, WORKBOOK_BANK_SHEET, row_number),
+            ).fetchone()
+            bank_transaction_id = bank_transaction["id"] if bank_transaction else None
+            if bank_transaction_id is not None:
+                for column, category_code in BANK_COLUMN_CATEGORY_CODES.items():
+                    amount = _to_amount(row.get(column))
+                    if amount == 0:
+                        continue
+                    db.execute(
+                        """
+                        INSERT INTO bank_transaction_allocations (
+                            bank_transaction_id, ledger_category_id, amount
+                        )
+                        VALUES (?, ?, ?)
+                        """,
+                        (bank_transaction_id, category_ids[category_code], amount),
+                    )
+            imported += 1
 
     return imported
 
@@ -469,7 +992,7 @@ def seed_bank_transactions_from_payments(
     ).fetchall()
 
     for payment in payment_rows:
-        cursor = db.execute(
+        bank_transaction = db.execute(
             """
             INSERT INTO bank_transactions (
                 reporting_period_id,
@@ -484,6 +1007,7 @@ def seed_bank_transactions_from_payments(
                 notes
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (
                 reporting_period_id,
@@ -497,8 +1021,8 @@ def seed_bank_transactions_from_payments(
                 int(payment["id"]),
                 payment["reference"],
             ),
-        )
-        bank_transaction_id = cursor.lastrowid
+        ).fetchone()
+        bank_transaction_id = bank_transaction["id"]
 
         if payment["subscription_amount"] > 0:
             db.execute(
@@ -528,6 +1052,10 @@ def seed_bank_ledger(db: sqlite3.Connection, reporting_period_id: int = 1) -> in
     if db.execute("SELECT COUNT(*) AS total FROM bank_transactions").fetchone()["total"] > 0:
         return 0
 
+    csv_totals = import_bank_statement_exports(db, reporting_period_id)
+    if csv_totals["inserted"] > 0 or csv_totals["updated"] > 0:
+        return csv_totals["inserted"] + csv_totals["updated"]
+
     workbook_path = _find_existing_workbook()
     if workbook_path is not None:
         imported = import_bank_transactions_from_workbook(db, reporting_period_id, workbook_path)
@@ -535,6 +1063,285 @@ def seed_bank_ledger(db: sqlite3.Connection, reporting_period_id: int = 1) -> in
             return imported
 
     return seed_bank_transactions_from_payments(db, reporting_period_id)
+
+
+def _current_reporting_period_id(db: sqlite3.Connection) -> int:
+    row = db.execute(
+        "SELECT id FROM reporting_periods WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return row["id"] if row else 1
+
+
+def virtual_account_report(db: sqlite3.Connection, reporting_period_id: int | None = None) -> list[dict[str, object]]:
+    reporting_period_id = reporting_period_id or _current_reporting_period_id(db)
+    account_rows = db.execute(
+        """
+        SELECT
+            va.id,
+            va.code,
+            va.display_name,
+            va.sort_order,
+            COALESCE(vab.opening_balance, 0) AS opening_balance
+        FROM virtual_accounts va
+        LEFT JOIN virtual_account_balances vab
+          ON vab.virtual_account_id = va.id
+         AND vab.reporting_period_id = ?
+        ORDER BY va.sort_order, va.display_name
+        """,
+        (reporting_period_id,),
+    ).fetchall()
+
+    category_map = {
+        row["ledger_category_id"]: row["virtual_account_code"]
+        for row in db.execute(
+            """
+            SELECT vacm.ledger_category_id, va.code AS virtual_account_code
+            FROM virtual_account_category_map vacm
+            JOIN virtual_accounts va ON va.id = vacm.virtual_account_id
+            """
+        ).fetchall()
+    }
+
+    account_index = {
+        row["code"]: {
+            "code": row["code"],
+            "display_name": row["display_name"],
+            "sort_order": row["sort_order"],
+            "opening_balance": float(row["opening_balance"] or 0),
+            "total_in": 0.0,
+            "total_out": 0.0,
+            "closing_balance": float(row["opening_balance"] or 0),
+            "entries": [],
+        }
+        for row in account_rows
+    }
+
+    if "MAIN" not in account_index:
+        account_index["MAIN"] = {
+            "code": "MAIN",
+            "display_name": "Main",
+            "sort_order": 10,
+            "opening_balance": 0.0,
+            "total_in": 0.0,
+            "total_out": 0.0,
+            "closing_balance": 0.0,
+            "entries": [],
+        }
+
+    entry_rows = db.execute(
+        """
+        SELECT
+            bt.id AS bank_transaction_id,
+            bt.transaction_date,
+            bt.details,
+            bt.transaction_type,
+            lc.id AS ledger_category_id,
+            lc.code AS ledger_category_code,
+            lc.display_name AS ledger_category_name,
+            lc.direction,
+            bta.amount
+        FROM bank_transaction_allocations bta
+        JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
+        JOIN ledger_categories lc ON lc.id = bta.ledger_category_id
+        WHERE bt.reporting_period_id = ?
+        ORDER BY
+            CASE WHEN bt.transaction_date IS NULL OR bt.transaction_date = '' THEN 1 ELSE 0 END,
+            bt.transaction_date,
+            bt.id,
+            bta.id
+        """,
+        (reporting_period_id,),
+    ).fetchall()
+
+    for row in entry_rows:
+        account_code = category_map.get(row["ledger_category_id"], "MAIN")
+        if account_code not in account_index:
+            account_index[account_code] = {
+                "code": account_code,
+                "display_name": account_code.title(),
+                "sort_order": 999,
+                "opening_balance": 0.0,
+                "total_in": 0.0,
+                "total_out": 0.0,
+                "closing_balance": 0.0,
+                "entries": [],
+            }
+        amount = float(row["amount"] or 0)
+        is_income = row["direction"] == "in"
+        account = account_index[account_code]
+        if is_income:
+            account["total_in"] += amount
+        else:
+            account["total_out"] += amount
+        account["entries"].append(
+            {
+                "bank_transaction_id": row["bank_transaction_id"],
+                "transaction_date": row["transaction_date"],
+                "details": row["details"],
+                "transaction_type": row["transaction_type"],
+                "category_code": row["ledger_category_code"],
+                "category_name": row["ledger_category_name"],
+                "direction": row["direction"],
+                "amount": amount,
+            }
+        )
+
+    for account in account_index.values():
+        account["closing_balance"] = account["opening_balance"] + account["total_in"] - account["total_out"]
+
+    return sorted(account_index.values(), key=lambda item: (item["sort_order"], item["display_name"]))
+
+
+def backfill_bank_allocations_from_workbook(
+    db: sqlite3.Connection,
+    reporting_period_id: int = 1,
+    workbook_path: Path | None = None,
+) -> dict[str, int]:
+    workbook_path = workbook_path or _find_existing_workbook()
+    if workbook_path is None:
+        return {"rows_seen": 0, "transactions_matched": 0, "allocations_written": 0}
+
+    rows = _read_sheet_rows(workbook_path, WORKBOOK_BANK_SHEET)
+    if not rows:
+        return {"rows_seen": 0, "transactions_matched": 0, "allocations_written": 0}
+
+    db.execute("DELETE FROM bank_transaction_allocations")
+    category_ids = _category_id_map(db)
+    rows_seen = 0
+    transactions_matched = 0
+    allocations_written = 0
+
+    for row_number, row in rows[1:]:
+        row_label = row.get("A", "").strip()
+        details = row.get("B", "").strip()
+        transaction_type = row.get("C", "").strip()
+
+        if row_label == "TOTALS" or details == "TOTALS":
+            break
+
+        transaction_date = _excel_serial_to_iso_date(row.get("A"))
+        money_in = _to_amount(row.get("D"))
+        money_out = _to_amount(row.get("E"))
+        running_balance = row.get("F")
+
+        if money_in > 0:
+            candidate_rows = db.execute(
+                """
+                SELECT id, transaction_date, details, transaction_type, money_in, money_out, running_balance
+                FROM bank_transactions
+                WHERE ROUND(CAST(money_in AS numeric), 2) = ?
+                ORDER BY id
+                """,
+                (money_in,),
+            ).fetchall()
+        else:
+            candidate_rows = db.execute(
+                """
+                SELECT id, transaction_date, details, transaction_type, money_in, money_out, running_balance
+                FROM bank_transactions
+                WHERE ROUND(CAST(money_out AS numeric), 2) = ?
+                ORDER BY id
+                """,
+                (money_out,),
+            ).fetchall()
+
+        if transaction_type:
+            filtered_candidates = [
+                candidate
+                for candidate in candidate_rows
+                if _normalize_statement_text(candidate["transaction_type"])
+                == _normalize_statement_text(transaction_type)
+            ]
+            if filtered_candidates:
+                candidate_rows = filtered_candidates
+
+        best_candidate = None
+        best_score = 0.0
+        for candidate in candidate_rows:
+            score = _score_bank_transaction_match(
+                transaction_date,
+                details or "Imported transaction",
+                transaction_type or None,
+                candidate,
+            )
+            if score > best_score:
+                best_score = score
+                best_candidate = candidate
+
+        matched_transaction = best_candidate if best_score >= 35.0 else None
+        rows_seen += 1
+
+        if matched_transaction is None:
+            continue
+
+        allocations: list[tuple[int, float]] = []
+        for column, category_code in BANK_COLUMN_CATEGORY_CODES.items():
+            amount = _to_amount(row.get(column))
+            if amount == 0:
+                continue
+            allocations.append((category_ids[category_code], amount))
+
+        if allocations:
+            replace_bank_transaction_allocations(db, matched_transaction["id"], allocations)
+            allocations_written += len(allocations)
+        transactions_matched += 1
+
+    return {
+        "rows_seen": rows_seen,
+        "transactions_matched": transactions_matched,
+        "allocations_written": allocations_written,
+    }
+
+
+def migrate_sqlite_database_to_postgres(sqlite_path: Path, postgres_dsn: str) -> dict[str, int]:
+    if not sqlite_path.exists():
+        raise FileNotFoundError(f"SQLite database not found: {sqlite_path}")
+
+    sqlite_db = sqlite3.connect(str(sqlite_path))
+    sqlite_db.row_factory = sqlite3.Row
+    postgres_db = DatabaseHandle(psycopg.connect(postgres_dsn, row_factory=dict_row), "postgres")
+
+    try:
+        if table_exists(postgres_db, "users"):
+            existing_users = postgres_db.execute("SELECT COUNT(*) AS total FROM users").fetchone()
+            if existing_users and existing_users["total"]:
+                raise RuntimeError("The PostgreSQL database already contains data.")
+
+        schema_path = Path(__file__).with_name("schema.sql")
+        postgres_db.executescript(schema_path.read_text(encoding="utf-8"))
+
+        inserted_rows = 0
+        for table_name in MIGRATION_TABLE_ORDER:
+            column_rows = sqlite_db.execute(f"PRAGMA table_info({table_name})").fetchall()
+            if not column_rows:
+                continue
+
+            column_names = [row["name"] for row in column_rows]
+            select_sql = f"SELECT {', '.join(column_names)} FROM {table_name} ORDER BY id"
+            rows = sqlite_db.execute(select_sql).fetchall()
+            if rows:
+                insert_sql = (
+                    f"INSERT INTO {table_name} ({', '.join(column_names)}) "
+                    f"VALUES ({', '.join(['%s'] * len(column_names))})"
+                )
+                postgres_db.executemany(
+                    insert_sql,
+                    [tuple(row[column] for column in column_names) for row in rows],
+                )
+                inserted_rows += len(rows)
+
+            max_id_row = sqlite_db.execute(f"SELECT COALESCE(MAX(id), 0) AS max_id FROM {table_name}").fetchone()
+            next_id = int(max_id_row["max_id"]) + 1 if max_id_row else 1
+            postgres_db.execute(f"ALTER TABLE {table_name} ALTER COLUMN id RESTART WITH {next_id}")
+
+        seed_ledger_categories(postgres_db)
+        if table_exists(postgres_db, "reporting_periods"):
+            seed_meeting_schedule(postgres_db, reporting_period_id=1)
+        postgres_db.commit()
+        return {"inserted_rows": inserted_rows}
+    finally:
+        sqlite_db.close()
+        postgres_db.close()
 
 
 def init_db() -> None:
@@ -785,6 +1592,9 @@ def init_db() -> None:
 
     ensure_financial_tables(db)
     seed_ledger_categories(db)
+    seed_virtual_accounts(db)
+    seed_virtual_account_category_map(db)
+    seed_virtual_account_balances(db, reporting_period_id=1)
     seed_bank_ledger(db, reporting_period_id=1)
 
     db.commit()
@@ -795,3 +1605,40 @@ def init_app(app) -> None:
     def init_db_command() -> None:
         init_db()
         print("Initialized the database.")
+
+    @app.cli.command("migrate-from-sqlite")
+    def migrate_from_sqlite_command() -> None:
+        sqlite_path = default_database_path()
+        postgres_dsn = app.config["DATABASE"]
+        if not _is_postgres_dsn(postgres_dsn):
+            raise RuntimeError("The active database is not PostgreSQL.")
+        totals = migrate_sqlite_database_to_postgres(sqlite_path, postgres_dsn)
+        print(f"Migrated {totals['inserted_rows']} rows from SQLite to PostgreSQL.")
+
+    @app.cli.command("backfill-bank-allocations")
+    def backfill_bank_allocations_command() -> None:
+        db = get_db()
+        totals = backfill_bank_allocations_from_workbook(db)
+        db.commit()
+        print(
+            f"Matched {totals['transactions_matched']} bank rows and wrote {totals['allocations_written']} allocations."
+        )
+
+    @app.cli.command("import-bank-statements")
+    def import_bank_statements_command() -> None:
+        db = get_db()
+        reporting_period_id = 1
+        totals = import_bank_statement_exports(db, reporting_period_id=reporting_period_id)
+        if totals["files"] == 0:
+            workbook_path = _find_existing_workbook()
+            if workbook_path is not None:
+                imported = import_bank_transactions_from_workbook(db, reporting_period_id, workbook_path)
+                db.commit()
+                print(f"Imported {imported} bank transactions from the workbook.")
+                return
+        db.commit()
+        print(
+            "Imported "
+            f"{totals['inserted']} new and updated {totals['updated']} bank statement rows "
+            f"from {totals['files']} CSV file(s)."
+        )

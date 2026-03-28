@@ -2,14 +2,32 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from .db import (
     _dues_status,
+    _find_existing_workbook,
     get_db,
-    import_bank_transactions,
+    import_bank_statement_exports,
+    import_bank_transactions_from_workbook,
     replace_bank_transaction_allocations,
     seed_meeting_schedule,
+    seed_virtual_account_balances,
+    seed_virtual_accounts,
+    seed_virtual_account_category_map,
+    virtual_account_report,
+    table_exists,
 )
 
 
 main_bp = Blueprint("main", __name__)
+
+
+@main_bp.app_context_processor
+def inject_balance_nav_accounts():
+    try:
+        db = get_db()
+        if not table_exists(db, "virtual_accounts"):
+            return {"balance_nav_accounts": []}
+        return {"balance_nav_accounts": virtual_account_report(db)}
+    except Exception:
+        return {"balance_nav_accounts": []}
 
 
 def _bank_page_context():
@@ -34,9 +52,10 @@ def _bank_page_context():
             bt.running_balance,
             bt.is_opening_balance,
             COALESCE(
-                GROUP_CONCAT(
-                    lc.display_name || '|' || printf('%.2f', bta.amount),
+                STRING_AGG(
+                    lc.display_name || '|' || TO_CHAR(bta.amount, 'FM999999990.00'),
                     '||'
+                    ORDER BY lc.display_name
                 ),
                 ''
             ) AS allocation_summary
@@ -94,6 +113,7 @@ def _bank_page_context():
                 "selected_category_id": (
                     selected_category_id["ledger_category_id"] if selected_category_id else None
                 ),
+                "needs_attention": not allocations and not transaction["is_opening_balance"],
                 "net_amount": (
                     float(transaction["money_in"])
                     if transaction["money_in"] > 0
@@ -108,7 +128,7 @@ def _bank_page_context():
             COUNT(*) AS total_transactions,
             COALESCE(SUM(money_in), 0) AS total_money_in,
             COALESCE(SUM(money_out), 0) AS total_money_out,
-            COALESCE(SUM(CASE WHEN allocation_counts.count_per_transaction IS NULL THEN 1 ELSE 0 END), 0)
+            COALESCE(SUM(CASE WHEN bt.is_opening_balance = 0 AND allocation_counts.count_per_transaction IS NULL THEN 1 ELSE 0 END), 0)
                 AS uncategorised_transactions
         FROM bank_transactions bt
         LEFT JOIN (
@@ -189,6 +209,9 @@ def _statement_page_context():
         """
     ).fetchone()["total"]
 
+    balance_rows = virtual_account_report(db)
+    balance_total = sum(float(row["closing_balance"] or 0) for row in balance_rows)
+
     return {
         "income_rows": income_rows,
         "expense_rows": expense_rows,
@@ -197,6 +220,8 @@ def _statement_page_context():
         "net_result": income_total - expense_total,
         "latest_bank_balance": latest_balance["running_balance"] if latest_balance else None,
         "uncategorised_transactions": uncategorised_transactions,
+        "balance_rows": balance_rows,
+        "balance_total": balance_total,
     }
 
 
@@ -454,12 +479,27 @@ def bank():
 @main_bp.post("/bank/import")
 def bank_import():
     db = get_db()
-    imported = import_bank_transactions(db, reporting_period_id=1)
+    reporting_period_id = _current_reporting_period_id()
+    totals = import_bank_statement_exports(db, reporting_period_id=reporting_period_id)
+    if totals["files"] == 0:
+        workbook_path = _find_existing_workbook()
+        if workbook_path is not None:
+            imported = import_bank_transactions_from_workbook(db, reporting_period_id, workbook_path)
+            db.commit()
+            if imported:
+                flash(f"Imported {imported} bank transactions from the workbook.", "success")
+            else:
+                flash("No bank statement rows needed importing.", "info")
+            return redirect(url_for("main.bank"))
+
     db.commit()
-    if imported:
-        flash(f"Imported {imported} bank transactions from the workbook.", "success")
+    if totals["inserted"] or totals["updated"]:
+        flash(
+            f"Imported {totals['inserted']} new and updated {totals['updated']} bank statement rows from {totals['files']} CSV file(s).",
+            "success",
+        )
     else:
-        flash("No new bank transactions were imported.", "info")
+        flash("No bank statement rows needed importing.", "info")
     return redirect(url_for("main.bank"))
 
 
@@ -467,6 +507,14 @@ def bank_import():
 def bank_assign(transaction_id: int):
     db = get_db()
     category_id = request.form.get("ledger_category_id", type=int)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _reply(message: str, status_code: int = 200):
+        if is_ajax:
+            return {"ok": status_code < 400, "message": message}, status_code
+        flash(message, "success" if status_code < 400 else "error")
+        return redirect(url_for("main.bank"))
+
     transaction = db.execute(
         """
         SELECT id, money_in, money_out
@@ -477,27 +525,57 @@ def bank_assign(transaction_id: int):
     ).fetchone()
 
     if category_id is None:
-        flash("Choose a category.", "error")
-        return redirect(url_for("main.bank"))
+        return _reply("Choose a category.", 400)
 
     if transaction is None:
-        flash("That bank transaction could not be found.", "error")
-        return redirect(url_for("main.bank"))
+        return _reply("That bank transaction could not be found.", 404)
 
     max_amount = float(transaction["money_in"] or transaction["money_out"] or 0)
     if max_amount <= 0:
-        flash("That row cannot be assigned a category.", "error")
-        return redirect(url_for("main.bank"))
+        return _reply("That row cannot be assigned a category.", 400)
 
     replace_bank_transaction_allocations(db, transaction_id, [(category_id, max_amount)])
     db.commit()
-    flash("Bank transaction category saved.", "success")
-    return redirect(url_for("main.bank"))
+    return _reply("Bank transaction category saved.")
 
 
 @main_bp.route("/statement")
 def statement():
     return render_template("statement.html", active_page="statement", **_statement_page_context())
+
+
+@main_bp.route("/balances/")
+def balances_index():
+    db = get_db()
+    accounts = virtual_account_report(db)
+    first_account = accounts[0]["code"] if accounts else "MAIN"
+    return redirect(url_for("main.balance_sheet", account_code=first_account))
+
+
+@main_bp.route("/balances/<account_code>")
+def balance_sheet(account_code: str):
+    db = get_db()
+    report = virtual_account_report(db)
+    selected_account = next((row for row in report if row["code"] == account_code.upper()), None)
+    if selected_account is None and report:
+        selected_account = report[0]
+    elif selected_account is None:
+        selected_account = {
+            "code": account_code.upper(),
+            "display_name": account_code.title(),
+            "opening_balance": 0.0,
+            "total_in": 0.0,
+            "total_out": 0.0,
+            "closing_balance": 0.0,
+            "entries": [],
+        }
+
+    return render_template(
+        "balance_sheet.html",
+        active_page="balances",
+        accounts=report,
+        selected_account=selected_account,
+    )
 
 
 @main_bp.route("/cash")
@@ -713,6 +791,7 @@ def help_page():
 def settings():
     db = get_db()
     reporting_period_id = _current_reporting_period_id()
+    seed_virtual_account_balances(db, reporting_period_id)
 
     if request.method == "POST":
         for meeting in _meeting_schedule():
@@ -731,12 +810,28 @@ def settings():
                 (meeting_date, meeting_name, meeting_type, notes, reporting_period_id, meeting_key),
             )
 
+        for account in virtual_account_report(db, reporting_period_id):
+            balance_value = request.form.get(f"{account['code']}_opening_balance", type=float)
+            if balance_value is None:
+                balance_value = float(account["opening_balance"] or 0)
+            db.execute(
+                """
+                UPDATE virtual_account_balances
+                SET opening_balance = ?
+                WHERE reporting_period_id = ? AND virtual_account_id = (
+                    SELECT id FROM virtual_accounts WHERE code = ?
+                )
+                """,
+                (balance_value, reporting_period_id, account["code"]),
+            )
+
         db.commit()
-        flash("Meeting schedule updated.", "success")
+        flash("Settings updated.", "success")
         return redirect(url_for("main.settings"))
 
     return render_template(
         "settings.html",
         active_page="settings",
         meeting_schedule=_meeting_schedule(),
+        virtual_accounts=virtual_account_report(db),
     )

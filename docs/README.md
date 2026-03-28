@@ -8,6 +8,7 @@ This folder keeps the project manageable in small, well-scoped slices.
 - `working-agreement.md` defines how we want Codex to work on the project
 - `specs/` contains feature specs we can implement one at a time
 - `sessions/` holds small execution notes for active work
+- `operations/` holds setup and runtime notes for things like PostgreSQL
 
 ## Recommended workflow
 

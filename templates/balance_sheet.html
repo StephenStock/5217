@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ selected_account.display_name }} | Balances | Lodge Treasurer{% endblock %}
+
+{% block content %}
+  <section class="hero-card statement-hero">
+    <div>
+      <p class="eyebrow">Balance Sheet</p>
+      <h2>{{ selected_account.display_name }}</h2>
+    </div>
+    <div class="hero-note">
+      <p>Opening balance, movement, and closing balance for the selected virtual account.</p>
+    </div>
+  </section>
+
+  <section class="stats-grid statement-stats">
+    <article class="stat-card">
+      <span>Opening</span>
+      <strong>&pound;{{ "%.2f"|format(selected_account.opening_balance) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>In</span>
+      <strong>&pound;{{ "%.2f"|format(selected_account.total_in) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Out</span>
+      <strong>&pound;{{ "%.2f"|format(selected_account.total_out) }}</strong>
+    </article>
+    <article class="stat-card">
+      <span>Closing</span>
+      <strong>&pound;{{ "%.2f"|format(selected_account.closing_balance) }}</strong>
+    </article>
+  </section>
+
+  <section class="panel statement-panel">
+    <div class="panel-heading">
+      <div>
+        <h3>Transactions</h3>
+        <p class="section-note">Rows that feed this account.</p>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table class="statement-table compact-ledger">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Details</th>
+            <th>Category</th>
+            <th>Direction</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in selected_account.entries %}
+            <tr>
+              <td>{{ entry.transaction_date or "-" }}</td>
+              <td>{{ entry.details }}</td>
+              <td>{{ entry.category_name }}</td>
+              <td>{{ entry.direction }}</td>
+              <td class="money-cell">&pound;{{ "%.2f"|format(entry.amount) }}</td>
+            </tr>
+          {% endfor %}
+          {% if not selected_account.entries %}
+            <tr>
+              <td colspan="5" class="muted-text">No transactions are currently mapped to this account.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
