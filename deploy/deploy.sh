@@ -31,8 +31,13 @@ if [[ -f /etc/treasurer/treasurer.env ]]; then
 fi
 
 if [[ -n "${TREASURER_DATABASE_URL:-}" ]]; then
-  echo "Refreshing database schema..."
-  "$PYTHON_BIN" -m flask --app app init-db
+  echo "Checking database schema..."
+  if "$PYTHON_BIN" -c "import os, sys, psycopg; conn = psycopg.connect(os.environ['TREASURER_DATABASE_URL']); exists = conn.execute(\"SELECT to_regclass('public.users')\").fetchone()[0]; sys.exit(0 if exists else 1)"; then
+    echo "Database schema already exists, skipping init-db."
+  else
+    echo "Initializing database schema..."
+    "$PYTHON_BIN" -m flask --app app init-db
+  fi
 fi
 
 echo "Restarting service..."
