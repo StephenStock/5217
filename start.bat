@@ -47,7 +47,7 @@ if not %errorlevel%==0 (
 %PYTHON_CMD% -c "import os, sys, psycopg; conn = psycopg.connect(os.environ['TREASURER_DATABASE_URL']); exists = conn.execute(\"SELECT to_regclass('public.users')\").fetchone()[0]; sys.exit(0 if exists else 1)" >nul 2>nul
 if not %errorlevel%==0 (
     %PYTHON_CMD% -m flask --app app init-db
-    if not %errorlevel%==0 (
+    if errorlevel 1 (
         echo Failed to initialize the database.
         pause
         goto :eof
