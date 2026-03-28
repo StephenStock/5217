@@ -29,14 +29,15 @@ else
   echo "Checkout unchanged: ${current_branch}@${new_commit}"
 fi
 
-if [[ ! -x "$PYTHON_BIN" ]]; then
+if [[ ! -x "$PYTHON_BIN" || ! -x "$PIP_BIN" ]]; then
   echo "Creating virtual environment..."
+  rm -rf .venv
   python3 -m venv .venv
 fi
 
 echo "Installing Python dependencies..."
 PIP_LOG="$(mktemp)"
-if ! "$PIP_BIN" install -q --disable-pip-version-check -r requirements.txt >"$PIP_LOG" 2>&1; then
+if ! "$PYTHON_BIN" -m pip install -q --disable-pip-version-check -r requirements.txt >"$PIP_LOG" 2>&1; then
   echo "Dependency installation failed."
   cat "$PIP_LOG"
   rm -f "$PIP_LOG"
@@ -44,10 +45,10 @@ if ! "$PIP_BIN" install -q --disable-pip-version-check -r requirements.txt >"$PI
 fi
 rm -f "$PIP_LOG"
 
-if [[ -f /etc/treasurer/treasurer.env ]]; then
+if [[ -f /etc/5217/5217.env ]]; then
   # shellcheck disable=SC1091
   set -a
-  source /etc/treasurer/treasurer.env
+  source /etc/5217/5217.env
   set +a
 fi
 
