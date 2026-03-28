@@ -45,6 +45,13 @@ def create_app(test_config: dict | None = None) -> Flask:
         ensure_database_parent_path(Path(app.config["DATABASE"]))
     init_app(app)
     app.teardown_appcontext(close_db)
+
+    @app.context_processor
+    def inject_current_user():
+        from flask import g
+
+        return {"current_user": g.get("current_user")}
+
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
