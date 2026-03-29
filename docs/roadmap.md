@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 5: Treasurer operations, hardening, and handover
+Phase 5: Treasurer operations, continuity, and local-first packaging
 
 ## Goal
 
@@ -59,7 +59,7 @@ Status:
 - Booking summary for the secretary or dining lead
 
 Status:
-- Partially delivered
+- De-emphasized and under review
 
 ### Phase 5: Treasurer operations
 
@@ -83,7 +83,7 @@ Status:
 - Submit queries or updates
 
 Status:
-- Not started
+- Deferred unless continuity-safe and genuinely needed
 
 ### Phase 7: Payments and notifications
 
@@ -97,6 +97,9 @@ Status:
 
 ## Immediate next slice
 
+- Formalize the local-first product pivot around the business continuity spec
+- Define a spreadsheet fallback export pack for treasury operations
+- Decide whether AWS remains only as an optional recovery/demo environment
+- Define the target for a packaged local Windows app
 - Continue improving inline-save UX across operational pages
 - Build out reconciliation checks and exception handling
-- Complete DNS, reverse proxy, and HTTPS for `app.5217.org.uk`

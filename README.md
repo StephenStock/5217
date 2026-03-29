@@ -1,13 +1,13 @@
-# 5217 Portal
+# 5217 Treasurer Aid
 
-Web app for lodge and chapter operations using Flask, vanilla JavaScript, SQLite for local development, and PostgreSQL in production.
+Local-first treasurer aid built with Flask, vanilla JavaScript, and SQLite, with spreadsheet fallback and handover as primary goals.
 
 ## What this repo contains
 
 - Server-rendered admin app for members, dues, bookings, bank, cash, and reporting
 - Local Windows launch flow via `start.bat`
-- Production deploy flow via `deploy.bat`
-- SQLite locally and PostgreSQL in production
+- Optional hosted deploy flow via `deploy.bat`
+- SQLite locally by default
 - Project documentation under `docs/`
 
 ## Quick start
@@ -25,7 +25,7 @@ This will:
 3. Use a local SQLite database on first run
 4. Start the development server at `http://127.0.0.1:5000`
 
-The app uses `TREASURER_DATABASE_URL` to decide which database to talk to. `start.bat` defaults to a local SQLite database in `%LOCALAPPDATA%\5217\Lodge.db` so you can develop on Windows without needing the Lightsail database.
+The app uses `TREASURER_DATABASE_URL` to decide which database to talk to. `start.bat` defaults to a local SQLite database in `%LOCALAPPDATA%\5217\Lodge.db`, which is now the preferred normal operating model.
 
 If you need to point the app somewhere else, set `TREASURER_DATABASE_URL` before launching it.
 
@@ -49,19 +49,18 @@ The admin pages require login. These seeded accounts are only the starting point
 
 - Internal users:
   - Treasurer
-  - Secretary
   - Admin/helper users
 - Current operational areas:
   - Members and dues
-  - Events and bookings
   - Bank ledger and categorisation
   - Cash entry and settlement
   - Reporting and balances
 - Public access:
-  - `/forms` remains the intended public-facing route area
+  - public forms are optional and may remain in Microsoft Forms instead
 
-## Production summary
+## Product direction
 
-- Production app host target: `app.5217.org.uk`
-- Production runtime: Lightsail + `systemd` + `gunicorn`
-- Canonical operational reference: [`docs/Runbook.md`](docs/Runbook.md)
+- preferred direction: local-first treasurer's aid
+- hosted AWS deployment: optional legacy path, not the main target
+- continuity priority: exportability, handover, and spreadsheet fallback
+- canonical operational reference: [`docs/Runbook.md`](docs/Runbook.md)

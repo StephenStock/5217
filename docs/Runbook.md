@@ -4,10 +4,23 @@
 
 This runbook is the single operational reference for the 5217 app. It replaces the earlier separate deployment, PostgreSQL, subdomain, and handoff notes.
 
+## Operating direction
+
+The current preferred operating model is:
+
+- local-first
+- SQLite by default
+- single active treasurer or custodian
+- spreadsheet export as the continuity fallback
+
+AWS and hosted PostgreSQL are now treated as legacy or optional operating paths, not the primary target architecture.
+
 ## Current system summary
 
 - Repo: `StephenStock/5217`
 - App stack: Flask, server-rendered templates, light vanilla JavaScript
+- Preferred operating mode: local Windows app
+- Preferred database: local SQLite
 - Production host: AWS Lightsail instance `lodge-app`
 - Production app path: `/home/ubuntu/5217`
 - Production service: `5217.service`
@@ -33,12 +46,14 @@ The app now includes:
 
 The production repo, deploy scripts, and server paths have been renamed from `Treasurer` to `5217`. A few historic identifiers remain intentionally, mainly `TREASURER_DATABASE_URL`.
 
+The hosted deployment remains useful as a reference environment, but continuity planning now favors local use over hosted operation.
+
 ## Repository and runtime layout
 
 Important local files:
 
 - `start.bat`: local Windows launcher
-- `deploy.bat`: Windows deploy entry point for Lightsail
+- `deploy.bat`: legacy and optional Windows deploy entry point for Lightsail
 - `deploy/deploy.sh`: server-side deploy script
 - `deploy/5217.service`: systemd unit installed on the server
 - `treasurer_app/schema.sql`: canonical schema
@@ -70,9 +85,25 @@ Example PostgreSQL DSN shape:
 postgresql://USER:PASSWORD@HOST:5432/DATABASE
 ```
 
-## Production deployment
+## Local-first deployment
 
-### Normal deploy flow
+### Preferred everyday use
+
+- Run `start.bat` on the Windows machine that is acting as the active treasurer machine
+- Keep the live database local
+- Produce regular backup and export packs for handover
+
+### Local database expectations
+
+- SQLite is the normal and preferred storage engine
+- The active local database should live at `%LOCALAPPDATA%\5217\Lodge.db` unless deliberately overridden
+- The live database should not be stored inside OneDrive
+
+## Optional hosted deployment
+
+Hosted deployment is no longer the preferred product direction, but the path still exists if needed for testing, demonstration, or temporary remote access.
+
+### Legacy deploy flow
 
 1. Commit locally
 2. Push to `origin/main`
@@ -96,7 +127,7 @@ postgresql://USER:PASSWORD@HOST:5432/DATABASE
 - Restarts `5217.service`
 - Checks service status
 
-### Production secrets
+### Hosted secrets
 
 - Keep secrets out of the repo
 - Store the production DSN in `/etc/5217/5217.env`
@@ -110,7 +141,7 @@ TREASURER_DATABASE_URL=postgresql://...
 
 ## Database notes
 
-### Production database
+### Hosted database
 
 - The live app uses Lightsail PostgreSQL
 - The app server and database should stay in the same AWS region
@@ -118,7 +149,7 @@ TREASURER_DATABASE_URL=postgresql://...
 
 ### Local and temporary hosts
 
-- The project can still run against SQLite locally
+- The project should normally run against SQLite locally
 - A local or LAN PostgreSQL host is possible for testing, but it is no longer the primary deployment target
 - Do not keep a live SQLite database inside OneDrive
 
@@ -197,7 +228,7 @@ The app is moving toward inline-save behavior for operational pages:
 
 The same pattern should be used for similar edit flows elsewhere as they are refined.
 
-## DNS, reverse proxy, and HTTPS
+## Hosted web access
 
 Current state:
 
@@ -205,7 +236,7 @@ Current state:
 - The intended public hostname remains `app.5217.org.uk`
 - The root website at `5217.org.uk` remains the WordPress public site
 
-Next infrastructure steps:
+These are now optional infrastructure steps rather than required roadmap items:
 
 1. Point `app.5217.org.uk` at the Lightsail static IP
 2. Add nginx in front of the Flask service
@@ -238,7 +269,8 @@ Confirm:
 
 - `TREASURER_DATABASE_URL` remains the environment variable name
 - legacy env-file fallback is still present in deploy logic
-- the public subdomain and HTTPS are still pending
+- the public subdomain and HTTPS are still pending if hosted access is kept
+- the preferred packaging target has shifted toward a local packaged Windows app
 
 ## Documentation policy
 
